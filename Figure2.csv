@@ -1,0 +1,252 @@
+5'UTR,Active_promoter,Blood cancer,0.44423644,2.847369539
+5'UTR,Weak_promoter,Blood cancer,0.38064014,1.054036428
+5'UTR,Strong_enhancer,Blood cancer,1.24442705,2.959691374
+5'UTR,Weak_enhancer,Blood cancer,2.42235172,4.533633834
+5'UTR,Insulator,Blood cancer,0.16041221,0.379290039
+5'UTR,Repressor,Blood cancer,3.14728356,7.909728373
+Start,Active_promoter,Blood cancer,0.491688783,14.20030731
+Start,Weak_promoter,Blood cancer,0.113609908,3.291893654
+Start,Strong_enhancer,Blood cancer,0.054942497,2.843972622
+Start,Weak_enhancer,Blood cancer,0.229082274,3.240676072
+Start,Insulator,Blood cancer,0.084741817,0.368766588
+Start,Repressor,Blood cancer,0.152721516,8.996601015
+CDS-exon,Active_promoter,Blood cancer,0.121462756,2.209378395
+CDS-exon,Weak_promoter,Blood cancer,0.042323602,0.628430213
+CDS-exon,Strong_enhancer,Blood cancer,0.023707468,1.407118622
+CDS-exon,Weak_enhancer,Blood cancer,0.063604705,0.149147513
+CDS-exon,Insulator,Blood cancer,0.010333895,0.568770871
+CDS-exon,Repressor,Blood cancer,0.11068694,9.783708549
+CDS-intron,Active_promoter,Blood cancer,0.093974743,0.435505037
+CDS-intron,Weak_promoter,Blood cancer,0.129446915,0.303724352
+CDS-intron,Strong_enhancer,Blood cancer,0.611205,1.423853899
+CDS-intron,Weak_enhancer,Blood cancer,1.3163493,2.546486349
+CDS-intron,Insulator,Blood cancer,0.179447862,0.441982521
+CDS-intron,Repressor,Blood cancer,2.816318871,7.405827095
+Stop,Active_promoter,Blood cancer,0.025143176,0.482376496
+Stop,Weak_promoter,Blood cancer,0.011174745,0.393909764
+Stop,Strong_enhancer,Blood cancer,0.06704847,1.701354938
+Stop,Weak_enhancer,Blood cancer,0.089397961,1.865251199
+Stop,Insulator,Blood cancer,0.025143176,0.553149881
+Stop,Repressor,Blood cancer,0.192764353,8.92582763
+3'UTR,Active_promoter,Blood cancer,0.040463478,0.277780056
+3'UTR,Weak_promoter,Blood cancer,0.06289925,0.278807178
+3'UTR,Strong_enhancer,Blood cancer,0.293674771,1.334168361
+3'UTR,Weak_enhancer,Blood cancer,0.592339644,1.987421485
+3'UTR,Insulator,Blood cancer,0.128458746,0.52447597
+3'UTR,Repressor,Blood cancer,1.38854592,7.708404672
+Intergenic,Active_promoter,Blood cancer,0.108445216,0.413842936
+Intergenic,Weak_promoter,Blood cancer,0.135419099,0.273705416
+Intergenic,Strong_enhancer,Blood cancer,0.496932353,1.021217094
+Intergenic,Weak_enhancer,Blood cancer,1.420310526,2.452074496
+Intergenic,Insulator,Blood cancer,0.207524467,0.44566461
+Intergenic,Repressor,Blood cancer,3.094129758,6.570832986
+5'UTR,Active_promoter,Blood normal,0.61213348,3.763776143
+5'UTR,Weak_promoter,Blood normal,0.82060696,2.056327679
+5'UTR,Strong_enhancer,Blood normal,1.60998646,3.744499945
+5'UTR,Weak_enhancer,Blood normal,2.84696998,5.34670027
+5'UTR,Insulator,Blood normal,0.11638402,0.282127152
+5'UTR,Repressor,Blood normal,1.19004895,3.882545905
+Start,Active_promoter,Blood normal,0.50938213,24.16352377
+Start,Weak_promoter,Blood normal,0.123853425,4.142105508
+Start,Strong_enhancer,Blood normal,0.027936863,1.881082088
+Start,Weak_enhancer,Blood normal,0.12012851,2.364389812
+Start,Insulator,Blood normal,0.008381059,0.217907529
+Start,Repressor,Blood normal,0.133165712,6.496251804
+CDS-exon,Active_promoter,Blood normal,0.136923271,2.773227643
+CDS-exon,Weak_promoter,Blood normal,0.055498898,1.156362874
+CDS-exon,Strong_enhancer,Blood normal,0.015712562,1.232606857
+CDS-exon,Weak_enhancer,Blood normal,0.046537815,1.150863226
+CDS-exon,Insulator,Blood normal,0.006049109,0.321254757
+CDS-exon,Repressor,Blood normal,0.084591754,3.442724587
+CDS-intron,Active_promoter,Blood normal,0.128006642,0.625016958
+CDS-intron,Weak_promoter,Blood normal,0.274731524,0.661445646
+CDS-intron,Strong_enhancer,Blood normal,0.837772198,2.024614273
+CDS-intron,Weak_enhancer,Blood normal,1.474905094,2.861548769
+CDS-intron,Insulator,Blood normal,0.883999156,0.329363929
+CDS-intron,Repressor,Blood normal,0.131065941,2.803810571
+Stop,Active_promoter,Blood normal,0.024211948,1.03366392
+Stop,Weak_promoter,Blood normal,0.016762118,0.807375332
+Stop,Strong_enhancer,Blood normal,0.053080039,1.43036737
+Stop,Weak_enhancer,Blood normal,0.080085673,1.358662756
+Stop,Insulator,Blood normal,0.013968431,0.328723751
+Stop,Repressor,Blood normal,0.094054104,3.282581366
+3'UTR,Active_promoter,Blood normal,0.043909473,0.383085756
+3'UTR,Weak_promoter,Blood normal,0.083739559,0.46995119
+3'UTR,Strong_enhancer,Blood normal,0.348552197,1.552003855
+3'UTR,Weak_enhancer,Blood normal,0.548223035,1.816087236
+3'UTR,Insulator,Blood normal,0.083508456,0.360773239
+3'UTR,Repressor,Blood normal,0.39148248,3.024107875
+Intergenic,Active_promoter,Blood normal,0.09240813,0.43543067
+Intergenic,Weak_promoter,Blood normal,0.12948592,0.315724483
+Intergenic,Strong_enhancer,Blood normal,0.452319405,0.991686098
+Intergenic,Weak_enhancer,Blood normal,1.091848701,1.955374379
+Intergenic,Insulator,Blood normal,0.163910897,0.359087146
+Intergenic,Repressor,Blood normal,1.144952384,2.793718976
+5'UTR,Active_promoter,Blood vessel normal,0.25845242,2.198940503
+5'UTR,Weak_promoter,Blood vessel normal,0.29888651,0.99710863
+5'UTR,Strong_enhancer,Blood vessel normal,1.382417,4.170582822
+5'UTR,Weak_enhancer,Blood vessel normal,1.62946635,3.370229828
+5'UTR,Insulator,Blood vessel normal,0.12786939,0.295278632
+5'UTR,Repressor,Blood vessel normal,2.05114693,5.714152318
+Start,Active_promoter,Blood vessel normal,0.47958281,19.57163477
+Start,Weak_promoter,Blood vessel normal,0.123853425,3.927922894
+Start,Strong_enhancer,Blood vessel normal,0.099641477,3.978209247
+Start,Weak_enhancer,Blood vessel normal,0.116403595,1.575639056
+Start,Insulator,Blood vessel normal,0.024211948,0.290543372
+Start,Repressor,Blood vessel normal,0.178795921,8.480700284
+CDS-exon,Active_promoter,Blood vessel normal,0.138623743,1.985719296
+CDS-exon,Weak_promoter,Blood vessel normal,0.052155085,0.735773339
+CDS-exon,Strong_enhancer,Blood vessel normal,0.029546539,1.997241169
+CDS-exon,Weak_enhancer,Blood vessel normal,0.030309399,0.923325976
+CDS-exon,Insulator,Blood vessel normal,0.008801454,0.425998447
+CDS-exon,Repressor,Blood vessel normal,0.11766526,5.86987764
+CDS-intron,Active_promoter,Blood vessel normal,0.038880846,0.284382498
+CDS-intron,Weak_promoter,Blood vessel normal,0.087679412,0.267992076
+CDS-intron,Strong_enhancer,Blood vessel normal,0.865729177,2.574598753
+CDS-intron,Weak_enhancer,Blood vessel normal,1.006939627,2.138136297
+CDS-intron,Insulator,Blood vessel normal,0.145149801,0.352567129
+CDS-intron,Repressor,Blood vessel normal,1.655109943,4.36681523
+Stop,Active_promoter,Blood vessel normal,0.013037203,0.446989803
+Stop,Weak_promoter,Blood vessel normal,0.027936863,0.42650277
+Stop,Strong_enhancer,Blood vessel normal,0.050286353,2.262885878
+Stop,Weak_enhancer,Blood vessel normal,0.047492667,0.887461005
+Stop,Insulator,Blood vessel normal,0.011174745,0.356660614
+Stop,Repressor,Blood vessel normal,0.162965032,6.366811007
+3'UTR,Active_promoter,Blood vessel normal,0.013703522,0.166770403
+3'UTR,Weak_promoter,Blood vessel normal,0.043065521,0.227925257
+3'UTR,Strong_enhancer,Blood vessel normal,0.404401965,2.242579175
+3'UTR,Weak_enhancer,Blood vessel normal,0.426587804,1.439787334
+3'UTR,Insulator,Blood vessel normal,0.09356227,0.393954421
+3'UTR,Repressor,Blood vessel normal,1.047757055,6.05287375
+Intergenic,Active_promoter,Blood vessel normal,0.041041856,0.257509627
+Intergenic,Weak_promoter,Blood vessel normal,0.062146934,0.18830289
+Intergenic,Strong_enhancer,Blood vessel normal,0.494076284,1.330136309
+Intergenic,Weak_enhancer,Blood vessel normal,0.66730032,1.314776108
+Intergenic,Insulator,Blood vessel normal,0.15911704,0.345224288
+Intergenic,Repressor,Blood vessel normal,3.329908346,6.883262857
+5'UTR,Active_promoter,Breast normal,0.3481114,2.813032951
+5'UTR,Weak_promoter,Breast normal,0.3805641,1.203570573
+5'UTR,Strong_enhancer,Breast normal,1.3240418,3.724191854
+5'UTR,Weak_enhancer,Breast normal,2.25054926,4.703012376
+5'UTR,Insulator,Breast normal,0.10825715,0.241489693
+5'UTR,Repressor,Breast normal,0.68889034,2.255930878
+Start,Active_promoter,Breast normal,0.350142012,20.74591423
+Start,Weak_promoter,Breast normal,0.357591842,7.002840248
+Start,Strong_enhancer,Breast normal,0.072635843,2.806723472
+Start,Weak_enhancer,Breast normal,0.11267868,2.417469851
+Start,Insulator,Breast normal,0.013037203,0.134096941
+Start,Repressor,Breast normal,0.094985333,3.245332216
+CDS-exon,Active_promoter,Breast normal,0.114682713,2.231623994
+CDS-exon,Weak_promoter,Breast normal,0.103120512,1.185069259
+CDS-exon,Strong_enhancer,Breast normal,0.0207182,1.18506926
+CDS-exon,Weak_enhancer,Breast normal,0.046974695,1.475547492
+CDS-exon,Insulator,Breast normal,0.003671473,0.181404389
+CDS-exon,Repressor,Breast normal,0.048369351,2.281309027
+CDS-intron,Active_promoter,Breast normal,0.068748146,0.458979235
+CDS-intron,Weak_promoter,Breast normal,0.097503081,0.284248062
+CDS-intron,Strong_enhancer,Breast normal,0.825186531,2.282488036
+CDS-intron,Weak_enhancer,Breast normal,1.374345424,2.9006301
+CDS-intron,Insulator,Breast normal,0.115700793,0.26814596
+CDS-intron,Repressor,Breast normal,0.561884045,1.716940952
+Stop,Active_promoter,Breast normal,0.004656144,0.656516273
+Stop,Weak_promoter,Breast normal,0.027936863,0.586674116
+Stop,Strong_enhancer,Breast normal,0.033524235,1.681799134
+Stop,Weak_enhancer,Breast normal,0.106160078,1.561670624
+Stop,Insulator,Breast normal,0.019555804,0.214182614
+Stop,Repressor,Breast normal,0.067979699,2.22377427
+3'UTR,Active_promoter,Breast normal,0.022913384,0.289497808
+3'UTR,Strong_enhancer,Breast normal,0.311029712,0.243576887
+3'UTR,Weak_promoter,Breast normal,0.041882618,1.747787035
+3'UTR,Weak_enhancer,Breast normal,0.509166714,1.779834959
+3'UTR,Insulator,Breast normal,0.065455072,0.226442778
+3'UTR,Repressor,Breast normal,0.325611423,2.033301321
+Intergenic,Active_promoter,Breast normal,0.047569981,0.292694358
+Intergenic,Weak_promoter,Breast normal,0.080847142,0.247904391
+Intergenic,Strong_enhancer,Breast normal,0.614196194,1.506739065
+Intergenic,Weak_enhancer,Breast normal,1.200275202,2.303840718
+Intergenic,Insulator,Breast normal,0.13944546,0.282553596
+Intergenic,Repressor,Breast normal,0.844970855,2.062755842
+5'UTR,Active_promoter,Liver cancer,0.49584927,3.238038566
+5'UTR,Weak_promoter,Liver cancer,0.59443234,1.827861184
+5'UTR,Strong_enhancer,Liver cancer,0.89171969,2.299816392
+5'UTR,Weak_enhancer,Liver cancer,1.58449043,3.068997314
+5'UTR,Insulator,Liver cancer,0.0907597,0.19876373
+5'UTR,Repressor,Liver cancer,1.08461746,3.112467004
+Start,Active_promoter,Liver cancer,0.471201751,22.84117894
+Start,Weak_promoter,Liver cancer,0.25422545,7.783209946
+Start,Strong_enhancer,Liver cancer,0.033524235,1.473203893
+Start,Weak_enhancer,Liver cancer,0.094985333,1.724635657
+Start,Insulator,Liver cancer,0.012105974,0.072635843
+Start,Repressor,Liver cancer,0.111747451,4.578851795
+CDS-exon,Active_promoter,Liver cancer,0.12660954,2.531848015
+CDS-exon,Weak_promoter,Liver cancer,0.097753608,1.627949762
+CDS-exon,Strong_enhancer,Liver cancer,0.008539326,0.935963573
+CDS-exon,Weak_enhancer,Liver cancer,0.027852788,0.912829091
+CDS-exon,Insulator,Liver cancer,0.005131661,0.191203946
+CDS-exon,Repressor,Liver cancer,0.054457107,4.426272808
+CDS-intron,Active_promoter,Liver cancer,0.101628145,0.531611842
+CDS-intron,Weak_promoter,Liver cancer,0.196304932,0.531523794
+CDS-intron,Strong_enhancer,Liver cancer,0.505309756,1.286989243
+CDS-intron,Weak_enhancer,Liver cancer,0.884781223,1.73160193
+CDS-intron,Insulator,Liver cancer,0.102325566,0.23179804
+CDS-intron,Repressor,Liver cancer,1.157655669,3.264551344
+Stop,Active_promoter,Liver cancer,0.013037203,0.874423802
+Stop,Weak_promoter,Liver cancer,0.027005634,1.077431671
+Stop,Strong_enhancer,Liver cancer,0.02234949,1.148205057
+Stop,Weak_enhancer,Liver cancer,0.017693346,0.954509475
+Stop,Insulator,Liver cancer,0.033524235,0.195558039
+Stop,Repressor,Liver cancer,0.126647111,4.117893561
+3'UTR,Active_promoter,Liver cancer,0.035142985,0.275561472
+3'UTR,Weak_promoter,Liver cancer,0.102691675,0.598017918
+3'UTR,Strong_enhancer,Liver cancer,0.240981692,1.204514729
+3'UTR,Weak_enhancer,Liver cancer,0.452315502,1.407859241
+3'UTR,Insulator,Liver cancer,0.056104837,0.18340807
+3'UTR,Repressor,Liver cancer,0.65064937,3.630072295
+Intergenic,Active_promoter,Liver cancer,0.095308132,0.423357339
+Intergenic,Weak_promoter,Liver cancer,0.260469624,0.645221347
+Intergenic,Strong_enhancer,Liver cancer,0.328027484,0.751152233
+Intergenic,Weak_enhancer,Liver cancer,1.068753626,1.834341454
+Intergenic,Insulator,Liver cancer,0.125251702,0.247733168
+Intergenic,Repressor,Liver cancer,1.866705335,4.052689699
+5'UTR,Active_promoter,Lung normal,0.34947682,3.002024354
+5'UTR,Weak_promoter,Lung normal,0.45218027,1.393804129
+5'UTR,Strong_enhancer,Lung normal,1.01174162,2.793729533
+5'UTR,Weak_enhancer,Lung normal,1.95780938,4.196139553
+5'UTR,Insulator,Lung normal,0.3009578,0.590602946
+5'UTR,Repressor,Lung normal,1.97266201,5.266079595
+Start,Active_promoter,Lung normal,0.471201751,23.22018904
+Start,Weak_promoter,Lung normal,0.168552405,4.695255389
+Start,Strong_enhancer,Lung normal,0.058667412,1.592401173
+Start,Weak_enhancer,Lung normal,0.105228849,1.685524049
+Start,Insulator,Lung normal,0.027005634,0.365041672
+Start,Repressor,Lung normal,0.203939098,8.883922336
+CDS-exon,Active_promoter,Lung normal,0.146196892,2.625236182
+CDS-exon,Weak_promoter,Lung normal,0.064649857,0.919570487
+CDS-exon,Strong_enhancer,Lung normal,0.017280289,1.22929497
+CDS-exon,Weak_enhancer,Lung normal,0.024860159,0.765691226
+CDS-exon,Insulator,Lung normal,0.011387448,0.519243788
+CDS-exon,Repressor,Lung normal,0.121341774,6.988573048
+CDS-intron,Active_promoter,Lung normal,0.064052127,0.452756276
+CDS-intron,Weak_promoter,Lung normal,0.130113995,0.38574921
+CDS-intron,Strong_enhancer,Lung normal,0.6593147,1.95377498
+CDS-intron,Weak_enhancer,Lung normal,1.217166883,2.692459717
+CDS-intron,Insulator,Lung normal,0.305570379,0.644738422
+CDS-intron,Repressor,Lung normal,1.681297573,4.299703538
+Stop,Active_promoter,Lung normal,0.00744983,0.893979606
+Stop,Weak_promoter,Lung normal,0.011174745,0.592261489
+Stop,Strong_enhancer,Lung normal,0.05214881,1.666899474
+Stop,Weak_enhancer,Lung normal,0.039111608,0.838105881
+Stop,Insulator,Lung normal,0.027936863,0.61367975
+Stop,Repressor,Lung normal,0.151790287,7.006565163
+3'UTR,Active_promoter,Lung normal,0.023964472,0.323613671
+3'UTR,Weak_promoter,Lung normal,0.061365414,0.313970705
+3'UTR,Strong_enhancer,Lung normal,0.335274931,1.88343906
+3'UTR,Weak_enhancer,Lung normal,0.391468785,1.484571572
+3'UTR,Insulator,Lung normal,0.169884295,0.626744813
+3'UTR,Repressor,Lung normal,0.922040725,5.538728917
+Intergenic,Active_promoter,Lung normal,0.052617621,0.34903058
+Intergenic,Weak_promoter,Lung normal,0.085431549,0.239967146
+Intergenic,Strong_enhancer,Lung normal,0.353793201,0.95657397
+Intergenic,Weak_enhancer,Lung normal,0.791066094,1.632285696
+Intergenic,Insulator,Lung normal,0.330194765,0.633243229
+Intergenic,Repressor,Lung normal,3.177092505,6.483754374

@@ -1,0 +1,516 @@
+\documentclass{article}
+\usepackage{underscore}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{titling}
+
+\begin{document}
+
+\title{Violin Plots For Genomic Repeats}
+\author{Steve Pederson\\
+        Adelaide University\\
+        Bioinformatics Centre}
+\maketitle
+
+<<loadPackages, include=FALSE, echo=FALSE>>=
+library(ggplot2)
+library(MASS)
+library(matrixStats)
+library(vioplot)
+library(xtable)
+source("extraFunctions.R")
+@
+
+<<knitrSetup, include=FALSE>>=
+knit_hooks$set(crop=hook_pdfcrop)
+opts_knit$set(self.contained=FALSE)
+opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, include=FALSE, echo=FALSE, cache=TRUE)
+Sys.setenv(TEXINPUTS=getwd(), BIBINPUTS=getwd(), BSTINPUTS=getwd())
+pdf.options(useDingbats=TRUE)
+@
+
+<<loadData>>=
+violData <- read.delim("vioplot_data")
+REnames <- c("L1_utr5_IDs","alu_utr5_IDs", "LTR_utr5_IDs")
+rpts <- rep("N", nrow(violData))
+rpts[which(rowSums(violData[,REnames])!=0)] <- "Y"
+violData <- data.frame(violData, RE=rpts)
+L1_alu <- 100*length(intersect(which(violData$L1==1), which(violData$alu==1))) / length(which(violData$L1==1))
+@
+
+\section*{Data Inspection}
+Some important features were noted with the original dataset:
+\begin{itemize}
+\item Most importantly, \Sexpr{formatC(L1_alu,3)}\% of L1 repeats also contained an ALU repeat, so significant confounding between these two repeats will be a problem for any regression models.
+The original approach of simply comparing genes with an element to genes without an element may be the most simple.
+Alternatively treating these repeats as three categories, i.e. L1 only, ALU only \& in combination as L1+Alu, may be an option.
+This would be similar to observing any interaction between these terms.
+\item The smoothing algorithm used in the original violin plots completely understates the lower tail of the distribution (Figure \ref{fig:rawViolinPlots}).
+\item There appear to be two clear populations of FPKM values, the low (are these possible to be considered as not expressed???) \& the highly expressed genes. 
+See Figure \ref{fig:lengthVsAdipose}.
+\item The overall populations are clear not normally distributed, ruling out any possibility of linear regression which incorporated length as a parameter.
+  However, the upper population appears not to violate this assumption very strongly.
+\end{itemize}
+
+<<rawViolinPlots, fig.width=6, fig.height=5, include=TRUE, fig.cap='Violin plot for adipose tissue based on the presence or absence of a repeat element. Note the much heavier tail than in the initial plots'>>=
+## Have a look at the raw data, separated on whether there is a RE in the gene
+ggplot(violData, aes(x=RE, y=adipose_expression)) + 
+  geom_violin(fill="darkred") +
+  geom_boxplot(width=0.1, fill="black", outlier.colour=NA) +
+  stat_summary(fun.y=median, geom="point", fill="white", shape=21, size=5) +
+  ylab("log2(FPKM)") + 
+  xlab("Repeat Element") +
+  scale_y_continuous(expand=c(0,0)) +
+  ggtitle("Adipose Tissue") +
+  theme(panel.background=element_rect("white"))
+@
+
+\section*{Analytic Approach}
+A possible approach to this data would be to look at each tissue and separate the expression values into low and highly expressed genes based on \textit{k-means} clustering using two means, i.e. low or high (see Figure \ref{fig:lengthVsAdipose}).
+We can then determine if the presence/absence of a repeat element (RE) affects the probability of being assigned to the low expression group.
+For the highly expressed group, the approximate normality will enable a linear regression model to be fitted including length as a parameter as well as the presence/absence of a specific RE.
+Whilst only being able to explain a very small amount of the observed data, these models should still detect whether there is an overall tendency to demonstrate increased or decreased expression as a result of gene length or the presence of an RE.
+
+<<adiposeKMeans>>=
+adiposeKmeans <- kmeans(cbind(log(violData$gene_length), violData$adipose_expression), 2)
+expInd <- which(adiposeKmeans$centers[,2] == max(adiposeKmeans$centers[,2])) # The highest expressed cluster
+adiposeExpression <- rep(0, nrow(violData))
+adiposeExpression[which(adiposeKmeans$cluster==expInd)] <- 1
+@
+
+<<lengthVsAdipose, fig.width=7, fig.height=5, include=TRUE, fig.cap=c("Expression values plotted as a function of gene length before K-Means clustering","As above showing the two subpopulations in blue \\& grey")>>=
+plot(violData$gene_length, violData$adipose, cex=0.7, log="x", xlab="Gene Length", ylab="log2(FPKM)")
+title(main="Adipose Tissue: FPKM Vs Length")
+mtext("Length is plotted on the log scale", font=3)
+plot(violData$gene_length, violData$adipose_expression, cex=0.8, log="x", xlab="Gene Length", ylab="log2(FPKM)", col="grey")
+points(violData$gene_length[which(adiposeExpression==1)], violData$adipose_expression[which(adiposeExpression==1)], cex=0.8, col="blue")
+title(main="Adipose Tissue: FPKM Vs Length showing K-means clustering")
+mtext("Using k=2", font=3)
+@
+
+<<adiposeAnalysis>>=
+# Check to see if the probability of being in the low expressed set of genes is affected by having any of the REs
+adiposeFisher <- matrix(0, nrow=3, ncol=2, dimnames=list(REnames, c("OddsRatio","PValue")))
+adiposeFisher[REnames[1],] <- unlist(fisher.test(rbind(table(violData[which(adiposeExpression==0), REnames[1]]),
+                                                table(violData[which(adiposeExpression==1), REnames[1]])))[c("estimate", "p.value")])
+adiposeFisher[REnames[2],] <- unlist(fisher.test(rbind(table(violData[which(adiposeExpression==0), REnames[2]]),
+                                                table(violData[which(adiposeExpression==1), REnames[2]])))[c("estimate", "p.value")])
+adiposeFisher[REnames[3],] <- unlist(fisher.test(rbind(table(violData[which(adiposeExpression==0), REnames[3]]),
+                                                table(violData[which(adiposeExpression==1), REnames[3]])))[c("estimate", "p.value")])
+## Include as an xtable in a later chunk
+adipose.L1.lm <- lm(adipose_expression~log(gene_length)+L1_utr5_IDs, data=violData, subset=which(adiposeExpression==1))
+adipose.alu.lm <- lm(adipose_expression~log(gene_length)+alu_utr5_IDs, data=violData, subset=which(adiposeExpression==1))
+adipose.LTR.lm <- lm(adipose_expression~log(gene_length)+LTR_utr5_IDs, data=violData, subset=which(adiposeExpression==1))
+@
+
+\clearpage
+\subsection*{Adipose Tissue}
+Looking first at the elements in \textbf{adipose tissue}, only LTR elements showed as increasing the probability of being called in the low-expressed group of genes (Table \ref{tab:adiposeFisher}; $p=$\Sexpr{formatC(adiposeFisher["LTR_utr5_IDs", "PValue"], digits=2, format="e")}). 
+Taking multiple testing impacts into consideration, the other two elements had no significant impact on whether a gene was called as low or highly expressed. \\
+\\
+For the highly expressed genes, a regression model was run for each RE including \textit{log}(Gene Length) as a parameter.
+Diagnostic plots were checked for all models (not shown) \& all model assumptions (i.e. linearity, homoscedasticity \& normality) were deemed to be valid.
+In all cases the effect of gene length was found to be significant (all $p$ \textless 1e-06), but these effects were 5 to 8-fold less than for each of the repetitive elements.
+All REs showed a highly significant effect on reducing the average gene expression levels (all $p$ \textless 1e-17).
+
+<<adiposeLow, results='asis', include=TRUE>>=
+adipose.xtable <- xtable(adiposeFisher,
+             caption="Odds ratio \\& $p$-values from Fisher tests for expression in adipose tissue. The null hypothesis is that the probability of being declared as being from the low expressed group of genes is the same for the presence and the absence of the specific RE. An Odds Ratio of less than one, indicates a decreased probability of being assigned to the highly expressed set of genes.",
+             label="tab:adiposeFisher",
+             digits=matrix(c(1, 3,3, 1, 3, 3, 1, 3,-2), nrow=3, byrow=TRUE))
+print(adipose.xtable, caption.placement="top")
+@
+
+<<adiposeHigh, results='asis', include=TRUE>>=
+adipose.L1.data <- data.frame(summary(adipose.L1.lm)$coef[,1:3], P.Value=summary(adipose.L1.lm)$coef[,4]*9, Sig=aster(summary(adipose.L1.lm)$coef[,4]))
+colnames(adipose.L1.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+adipose.L1.xtable <- xtable(adipose.L1.data ,
+                            caption = "Adipose Tissue: Linear regression results for L1 Repetitive Elements",
+                            label = "tab:adiposeL1")
+digits(adipose.L1.xtable) <- c(0, 3, 3, 3, -2,0)
+print(adipose.L1.xtable, caption.placement="top")
+
+adipose.alu.data <- data.frame(summary(adipose.alu.lm)$coef[,1:3], P.Value=summary(adipose.alu.lm)$coef[,4]*9, Sig=aster(summary(adipose.alu.lm)$coef[,4]))
+colnames(adipose.alu.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+adipose.alu.xtable <- xtable(adipose.alu.data ,
+                            caption = "Adipose Tissue: Linear regression results for alu Repetitive Elements",
+                            label = "tab:adiposealu")
+digits(adipose.alu.xtable) <- c(0, 3, 3, 3, -2,0)
+print(adipose.alu.xtable, caption.placement="top")
+
+adipose.LTR.data <- data.frame(summary(adipose.LTR.lm)$coef[,1:3], P.Value=summary(adipose.LTR.lm)$coef[,4]*9, Sig=aster(summary(adipose.LTR.lm)$coef[,4]))
+colnames(adipose.LTR.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+adipose.LTR.xtable <- xtable(adipose.LTR.data ,
+                            caption = "Adipose Tissue: Linear regression results for LTR Repetitive Elements",
+                            label = "tab:adiposeLTR")
+digits(adipose.LTR.xtable) <- c(0, 3, 3, 3, -2,0)
+print(adipose.LTR.xtable, caption.placement="top")
+@
+
+\clearpage
+\subsection*{Brain Tissue}
+<<brainKMeans>>=
+brainKmeans <- kmeans(cbind(log(violData$gene_length), violData$brain_expression), 2)
+expInd <- which(brainKmeans$centers[,2] == max(brainKmeans$centers[,2])) # The highest expressed cluster
+brainExpression <- rep(0, nrow(violData))
+brainExpression[which(brainKmeans$cluster==expInd)] <- 1
+@
+
+<<lengthVsBrain, fig.width=7, fig.height=5, include=TRUE, fig.cap="Expression values plotted as a function of gene length showing the two subpopulations in blue \\& grey">>=
+plot(violData$gene_length, violData$brain_expression, cex=0.8, log="x", xlab="Gene Length", ylab="log2(FPKM)", col="grey")
+points(violData$gene_length[which(brainExpression==1)], violData$brain_expression[which(brainExpression==1)], cex=0.8, col="blue")
+title(main="Brain Tissue: FPKM Vs Length showing K-means clustering")
+mtext("Using k=2", font=3)
+@
+
+<<brainAnalysis>>=
+# Check to see if the probability of being in the low expressed set of genes is affected by having any of the REs
+brainFisher <- matrix(0, nrow=3, ncol=2, dimnames=list(REnames, c("OddsRatio","PValue")))
+brainFisher[REnames[1],] <- unlist(fisher.test(rbind(table(violData[which(brainExpression==0), REnames[1]]),
+                                                table(violData[which(brainExpression==1), REnames[1]])))[c("estimate", "p.value")])
+brainFisher[REnames[2],] <- unlist(fisher.test(rbind(table(violData[which(brainExpression==0), REnames[2]]),
+                                                table(violData[which(brainExpression==1), REnames[2]])))[c("estimate", "p.value")])
+brainFisher[REnames[3],] <- unlist(fisher.test(rbind(table(violData[which(brainExpression==0), REnames[3]]),
+                                                table(violData[which(brainExpression==1), REnames[3]])))[c("estimate", "p.value")])
+## Include as an xtable in a later chunk
+brain.L1.lm <- lm(brain_expression~log(gene_length)+L1_utr5_IDs, data=violData, subset=which(brainExpression==1))
+brain.alu.lm <- lm(brain_expression~log(gene_length)+alu_utr5_IDs, data=violData, subset=which(brainExpression==1))
+brain.LTR.lm <- lm(brain_expression~log(gene_length)+LTR_utr5_IDs, data=violData, subset=which(brainExpression==1))
+@
+Looking next at the elements in \textbf{brain tissue}, no elements showed as influencing the probability of being called in the low-expressed group of genes (Table \ref{tab:brainFisher}). \\
+\\
+For the highly expressed genes, a regression model was run for each RE including \textit{log}(Gene Length) as a parameter.
+Diagnostic plots were checked for all models (not shown) \& all model assumptions (i.e. linearity, homoscedasticity \& normality) were deemed to be valid.
+In all cases the effect of gene length was found to be significant (all $p$ \textless 1e-27), but these effects were found to be in the opposite direction to each of the repetitive elements.
+All REs showed a highly significant effect on reducing the average gene expression levels (all $p$ \textless 1e-20).
+
+<<brainLow, results='asis', include=TRUE>>=
+brain.xtable <- xtable(brainFisher,
+             caption="Odds ratio \\& $p$-values from Fisher tests for expression in brain tissue. The null hypothesis is that the probability of being declared as being from the low expressed group of genes is the same for the presence and the absence of the specific RE. An Odds Ratio of less than one, indicates a decreased probability of being assigned to the highly expressed set of genes.",
+             label="tab:brainFisher",
+             digits=matrix(c(1, 3,3, 1, 3, 3, 1, 3, 3), nrow=3, byrow=TRUE))
+print(brain.xtable, caption.placement="top")
+@
+
+<<brainHigh, results='asis', include=TRUE>>=
+brain.L1.data <- data.frame(summary(brain.L1.lm)$coef, Sig=aster(summary(brain.L1.lm)$coef[,4]))
+colnames(brain.L1.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+brain.L1.xtable <- xtable(brain.L1.data ,
+                            caption = "Brain Tissue: Linear regression results for L1 Repetitive Elements",
+                            label = "tab:brainL1")
+digits(brain.L1.xtable) <- c(0, 3, 3, 3, -2,0)
+print(brain.L1.xtable, caption.placement="top")
+
+brain.alu.data <- data.frame(summary(brain.alu.lm)$coef, Sig=aster(summary(brain.alu.lm)$coef[,4]))
+colnames(brain.alu.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+brain.alu.xtable <- xtable(brain.alu.data ,
+                            caption = "Brain Tissue: Linear regression results for alu Repetitive Elements",
+                            label = "tab:brainalu")
+digits(brain.alu.xtable) <- c(0, 3, 3, 3, -2,0)
+print(brain.alu.xtable, caption.placement="top")
+
+brain.LTR.data <- data.frame(summary(brain.LTR.lm)$coef, Sig=aster(summary(brain.LTR.lm)$coef[,4]))
+colnames(brain.LTR.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+brain.LTR.xtable <- xtable(brain.LTR.data ,
+                            caption = "Brain Tissue: Linear regression results for LTR Repetitive Elements",
+                            label = "tab:brainLTR")
+digits(brain.LTR.xtable) <- c(0, 3, 3, 3, -2,0)
+print(brain.LTR.xtable, caption.placement="top")
+@
+
+\clearpage
+\subsection*{Kidney Tissue}
+<<kidneyKMeans>>=
+kidneyKmeans <- kmeans(cbind(log(violData$gene_length), violData$kidney_expression), 2)
+expInd <- which(kidneyKmeans$centers[,2] == max(kidneyKmeans$centers[,2])) # The highest expressed cluster
+kidneyExpression <- rep(0, nrow(violData))
+kidneyExpression[which(kidneyKmeans$cluster==expInd)] <- 1
+@
+
+<<lengthVsKidney, fig.width=7, fig.height=5, include=TRUE, fig.cap="Expression values plotted as a function of gene length showing the two subpopulations in blue \\& grey">>=
+plot(violData$gene_length, violData$kidney_expression, cex=0.8, log="x", xlab="Gene Length", ylab="log2(FPKM)", col="grey")
+points(violData$gene_length[which(kidneyExpression==1)], violData$kidney_expression[which(kidneyExpression==1)], cex=0.8, col="blue")
+title(main="Kidney Tissue: FPKM Vs Length showing K-means clustering")
+mtext("Using k=2", font=3)
+@
+
+<<kidneyAnalysis>>=
+# Check to see if the probability of being in the low expressed set of genes is affected by having any of the REs
+kidneyFisher <- matrix(0, nrow=3, ncol=2, dimnames=list(REnames, c("OddsRatio","PValue")))
+kidneyFisher[REnames[1],] <- unlist(fisher.test(rbind(table(violData[which(kidneyExpression==0), REnames[1]]),
+                                                table(violData[which(kidneyExpression==1), REnames[1]])))[c("estimate", "p.value")])
+kidneyFisher[REnames[2],] <- unlist(fisher.test(rbind(table(violData[which(kidneyExpression==0), REnames[2]]),
+                                                table(violData[which(kidneyExpression==1), REnames[2]])))[c("estimate", "p.value")])
+kidneyFisher[REnames[3],] <- unlist(fisher.test(rbind(table(violData[which(kidneyExpression==0), REnames[3]]),
+                                                table(violData[which(kidneyExpression==1), REnames[3]])))[c("estimate", "p.value")])
+## Include as an xtable in a later chunk
+kidney.L1.lm <- lm(kidney_expression~log(gene_length)+L1_utr5_IDs, data=violData, subset=which(kidneyExpression==1))
+kidney.alu.lm <- lm(kidney_expression~log(gene_length)+alu_utr5_IDs, data=violData, subset=which(kidneyExpression==1))
+kidney.LTR.lm <- lm(kidney_expression~log(gene_length)+LTR_utr5_IDs, data=violData, subset=which(kidneyExpression==1))
+@
+In \textbf{kidney tissue}, only LTR elements showed as increasing the probability of being called in the low-expressed group of genes (Table \ref{tab:kidneyFisher}; $p=$\Sexpr{formatC(kidneyFisher["LTR_utr5_IDs", "PValue"], digits=2, format="e")}). 
+Neither of the other two elements had any significant impact on whether a gene was called as low or highly expressed. \\
+\\
+For the highly expressed genes, a regression model was run for each RE including \textit{log}(Gene Length) as a parameter.
+Diagnostic plots were checked for all models (not shown) \& all model assumptions (i.e. linearity, homoscedasticity \& normality) were deemed to be valid.
+In all cases the effect of gene length was also found to be significant (all $p$ \textless 1e-20).
+All REs showed a highly significant effect on reducing the average gene expression levels (all $p$ \textless 1e-13).
+
+<<kidneyLow, results='asis', include=TRUE>>=
+kidney.xtable <- xtable(kidneyFisher,
+             caption="Odds ratio \\& $p$-values from Fisher tests for expression in kidney tissue. The null hypothesis is that the probability of being declared as being from the low expressed group of genes is the same for the presence and the absence of the specific RE. An Odds Ratio of less than one, indicates a decreased probability of being assigned to the highly expressed set of genes.",
+             label="tab:kidneyFisher",
+             digits=matrix(c(1, 3,3, 1, 3, 3, 1, 3,-2), nrow=3, byrow=TRUE))
+print(kidney.xtable, caption.placement="top")
+@
+
+<<kidneyHigh, results='asis', include=TRUE>>=
+kidney.L1.data <- data.frame(summary(kidney.L1.lm)$coef, Sig=aster(summary(kidney.L1.lm)$coef[,4]))
+colnames(kidney.L1.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+kidney.L1.xtable <- xtable(kidney.L1.data ,
+                            caption = "Kidney Tissue: Linear regression results for L1 Repetitive Elements",
+                            label = "tab:kidneyL1")
+digits(kidney.L1.xtable) <- c(0, 3, 3, 3, -2,0)
+print(kidney.L1.xtable, caption.placement="top")
+
+kidney.alu.data <- data.frame(summary(kidney.alu.lm)$coef, Sig=aster(summary(kidney.alu.lm)$coef[,4]))
+colnames(kidney.alu.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+kidney.alu.xtable <- xtable(kidney.alu.data ,
+                            caption = "Kidney Tissue: Linear regression results for alu Repetitive Elements",
+                            label = "tab:kidneyalu")
+digits(kidney.alu.xtable) <- c(0, 3, 3, 3, -2,0)
+print(kidney.alu.xtable, caption.placement="top")
+
+kidney.LTR.data <- data.frame(summary(kidney.LTR.lm)$coef, Sig=aster(summary(kidney.LTR.lm)$coef[,4]))
+colnames(kidney.LTR.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+kidney.LTR.xtable <- xtable(kidney.LTR.data ,
+                            caption = "Kidney Tissue: Linear regression results for LTR Repetitive Elements",
+                            label = "tab:kidneyLTR")
+digits(kidney.LTR.xtable) <- c(0, 3, 3, 3, -2,0)
+print(kidney.LTR.xtable, caption.placement="top")
+@
+
+\clearpage
+\subsection*{Liver Tissue}
+<<liverKMeans>>=
+liverKmeans <- kmeans(cbind(log(violData$gene_length), violData$liver_expression), 2)
+expInd <- which(liverKmeans$centers[,2] == max(liverKmeans$centers[,2])) # The highest expressed cluster
+liverExpression <- rep(0, nrow(violData))
+liverExpression[which(liverKmeans$cluster==expInd)] <- 1
+@
+
+<<lengthVsLiver, fig.width=7, fig.height=5, include=TRUE, fig.cap="Expression values plotted as a function of gene length showing the two subpopulations in blue \\& grey">>=
+plot(violData$gene_length, violData$liver_expression, cex=0.8, log="x", xlab="Gene Length", ylab="log2(FPKM)", col="grey")
+points(violData$gene_length[which(liverExpression==1)], violData$liver_expression[which(liverExpression==1)], cex=0.8, col="blue")
+title(main="Liver Tissue: FPKM Vs Length showing K-means clustering")
+mtext("Using k=2", font=3)
+@
+
+<<liverAnalysis>>=
+# Check to see if the probability of being in the low expressed set of genes is affected by having any of the REs
+liverFisher <- matrix(0, nrow=3, ncol=2, dimnames=list(REnames, c("OddsRatio","PValue")))
+liverFisher[REnames[1],] <- unlist(fisher.test(rbind(table(violData[which(liverExpression==0), REnames[1]]),
+                                                table(violData[which(liverExpression==1), REnames[1]])))[c("estimate", "p.value")])
+liverFisher[REnames[2],] <- unlist(fisher.test(rbind(table(violData[which(liverExpression==0), REnames[2]]),
+                                                table(violData[which(liverExpression==1), REnames[2]])))[c("estimate", "p.value")])
+liverFisher[REnames[3],] <- unlist(fisher.test(rbind(table(violData[which(liverExpression==0), REnames[3]]),
+                                                table(violData[which(liverExpression==1), REnames[3]])))[c("estimate", "p.value")])
+## Include as an xtable in a later chunk
+liver.L1.lm <- lm(liver_expression~log(gene_length)+L1_utr5_IDs, data=violData, subset=which(liverExpression==1))
+liver.alu.lm <- lm(liver_expression~log(gene_length)+alu_utr5_IDs, data=violData, subset=which(liverExpression==1))
+liver.LTR.lm <- lm(liver_expression~log(gene_length)+LTR_utr5_IDs, data=violData, subset=which(liverExpression==1))
+@
+In \textbf{liver tissue}, both LTR \& L1 elements showed as increasing the probability of being called in the low-expressed group of genes (Table \ref{tab:liverFisher}; $p=$\Sexpr{formatC(liverFisher[c("L1_utr5_IDs","LTR_utr5_IDs"), "PValue"], digits=2, format="e")}). 
+Neither of the other two elements had any significant impact on whether a gene was called as low or highly expressed. \\
+\\
+For the highly expressed genes, a regression model was run for each RE including \textit{log}(Gene Length) as a parameter.
+Diagnostic plots were checked for all models (not shown) \& all model assumptions (i.e. linearity, homoscedasticity \& normality) were deemed to be valid.
+In all cases the effect of gene length was found to be significant (all $p$ \textless 1e-60), and these effects were actually comparable to those observed as a result of the presence of an RE.
+All REs showed a highly significant effect on reducing the average gene expression levels (all $p$ \textless 1e-8).
+
+<<liverLow, results='asis', include=TRUE>>=
+liver.xtable <- xtable(liverFisher,
+             caption="Odds ratio \\& $p$-values from Fisher tests for expression in liver tissue. The null hypothesis is that the probability of being declared as being from the low expressed group of genes is the same for the presence and the absence of the specific RE. An Odds Ratio of less than one, indicates a decreased probability of being assigned to the highly expressed set of genes.",
+             label="tab:liverFisher",
+             digits=matrix(c(1, 3,-2, 1, 3, 3, 1, 3,-2), nrow=3, byrow=TRUE))
+print(liver.xtable, caption.placement="top")
+@
+
+<<liverHigh, results='asis', include=TRUE>>=
+liver.L1.data <- data.frame(summary(liver.L1.lm)$coef, Sig=aster(summary(liver.L1.lm)$coef[,4]))
+colnames(liver.L1.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+liver.L1.xtable <- xtable(liver.L1.data ,
+                            caption = "Liver Tissue: Linear regression results for L1 Repetitive Elements",
+                            label = "tab:liverL1")
+digits(liver.L1.xtable) <- c(0, 3, 3, 3, -2,0)
+print(liver.L1.xtable, caption.placement="top")
+
+liver.alu.data <- data.frame(summary(liver.alu.lm)$coef, Sig=aster(summary(liver.alu.lm)$coef[,4]))
+colnames(liver.alu.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+liver.alu.xtable <- xtable(liver.alu.data ,
+                            caption = "Liver Tissue: Linear regression results for alu Repetitive Elements",
+                            label = "tab:liveralu")
+digits(liver.alu.xtable) <- c(0, 3, 3, 3, -2,0)
+print(liver.alu.xtable, caption.placement="top")
+
+liver.LTR.data <- data.frame(summary(liver.LTR.lm)$coef, Sig=aster(summary(liver.LTR.lm)$coef[,4]))
+colnames(liver.LTR.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+liver.LTR.xtable <- xtable(liver.LTR.data ,
+                            caption = "Liver Tissue: Linear regression results for LTR Repetitive Elements",
+                            label = "tab:liverLTR")
+digits(liver.LTR.xtable) <- c(0, 3, 3, 3, -2,0)
+print(liver.LTR.xtable, caption.placement="top")
+@
+
+\clearpage
+\subsection*{Skeletal Tissue}
+<<skeletal_muscleKMeans>>=
+skeletal_muscleKmeans <- kmeans(cbind(log(violData$gene_length), violData$skeletal_muscle_expression), 2)
+expInd <- which(skeletal_muscleKmeans$centers[,2] == max(skeletal_muscleKmeans$centers[,2])) # The highest expressed cluster
+skeletal_muscleExpression <- rep(0, nrow(violData))
+skeletal_muscleExpression[which(skeletal_muscleKmeans$cluster==expInd)] <- 1
+@
+
+<<lengthVsSkeletal, fig.width=7, fig.height=5, include=TRUE, fig.cap="Expression values plotted as a function of gene length showing the two subpopulations in blue \\& grey">>=
+plot(violData$gene_length, violData$skeletal_muscle_expression, cex=0.8, log="x", xlab="Gene Length", ylab="log2(FPKM)", col="grey")
+points(violData$gene_length[which(skeletal_muscleExpression==1)], violData$skeletal_muscle_expression[which(skeletal_muscleExpression==1)], cex=0.8, col="blue")
+title(main="Skeletal Tissue: FPKM Vs Length showing K-means clustering")
+mtext("Using k=2", font=3)
+@
+
+<<skeletalmuscleAnalysis>>=
+# Check to see if the probability of being in the low expressed set of genes is affected by having any of the REs
+skeletal_muscleFisher <- matrix(0, nrow=3, ncol=2, dimnames=list(REnames, c("OddsRatio","PValue")))
+skeletal_muscleFisher[REnames[1],] <- unlist(fisher.test(rbind(table(violData[which(skeletal_muscleExpression==0), REnames[1]]),
+                                                table(violData[which(skeletal_muscleExpression==1), REnames[1]])))[c("estimate", "p.value")])
+skeletal_muscleFisher[REnames[2],] <- unlist(fisher.test(rbind(table(violData[which(skeletal_muscleExpression==0), REnames[2]]),
+                                                table(violData[which(skeletal_muscleExpression==1), REnames[2]])))[c("estimate", "p.value")])
+skeletal_muscleFisher[REnames[3],] <- unlist(fisher.test(rbind(table(violData[which(skeletal_muscleExpression==0), REnames[3]]),
+                                                table(violData[which(skeletal_muscleExpression==1), REnames[3]])))[c("estimate", "p.value")])
+## Include as an xtable in a later chunk
+skeletal_muscle.L1.lm <- lm(skeletal_muscle_expression~log(gene_length)+L1_utr5_IDs, data=violData, subset=which(skeletal_muscleExpression==1))
+skeletal_muscle.alu.lm <- lm(skeletal_muscle_expression~log(gene_length)+alu_utr5_IDs, data=violData, subset=which(skeletal_muscleExpression==1))
+skeletal_muscle.LTR.lm <- lm(skeletal_muscle_expression~log(gene_length)+LTR_utr5_IDs, data=violData, subset=which(skeletal_muscleExpression==1))
+@
+In \textbf{skeletal muscle tissue}, all elements showed as increasing the probability of being called in the low-expressed group of genes (Table \ref{tab:skeletalmuscleFisher}), however after multiple testing considerations alu elements may not have been considered significant. \\
+\\
+For the highly expressed genes, a regression model was run for each RE including \textit{log}(Gene Length) as a parameter.
+Diagnostic plots were checked for all models (not shown) \& all model assumptions (i.e. linearity, homoscedasticity \& normality) were deemed to be valid.
+In all cases the effect of gene length was found to be significant (all $p$ \textless 1e-11). 
+All REs showed a highly significant effect on reducing the average gene expression levels (all $p$ \textless 1e-14).
+
+<<skeletalmuscleLow, results='asis', include=TRUE>>=
+skeletal_muscle.xtable <- xtable(skeletal_muscleFisher,
+             caption="Odds ratio \\& $p$-values from Fisher tests for expression in skeletal_muscle tissue. The null hypothesis is that the probability of being declared as being from the low expressed group of genes is the same for the presence and the absence of the specific RE. An Odds Ratio of less than one, indicates a decreased probability of being assigned to the highly expressed set of genes.",
+             label="tab:skeletalmuscleFisher",
+             digits=matrix(c(1, 3,-2, 1, 3, -2, 1, 3,-2), nrow=3, byrow=TRUE))
+print(skeletal_muscle.xtable, caption.placement="top")
+@
+
+<<skeletalmuscleHigh, results='asis', include=TRUE>>=
+skeletal_muscle.L1.data <- data.frame(summary(skeletal_muscle.L1.lm)$coef, Sig=aster(summary(skeletal_muscle.L1.lm)$coef[,4]))
+colnames(skeletal_muscle.L1.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+skeletal_muscle.L1.xtable <- xtable(skeletal_muscle.L1.data ,
+                            caption = "Skeletal Tissue: Linear regression results for L1 Repetitive Elements",
+                            label = "tab:skeletalmuscleL1")
+digits(skeletal_muscle.L1.xtable) <- c(0, 3, 3, 3, -2,0)
+print(skeletal_muscle.L1.xtable, caption.placement="top")
+
+skeletal_muscle.alu.data <- data.frame(summary(skeletal_muscle.alu.lm)$coef, Sig=aster(summary(skeletal_muscle.alu.lm)$coef[,4]))
+colnames(skeletal_muscle.alu.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+skeletal_muscle.alu.xtable <- xtable(skeletal_muscle.alu.data ,
+                            caption = "Skeletal Tissue: Linear regression results for alu Repetitive Elements",
+                            label = "tab:skeletalmusclealu")
+digits(skeletal_muscle.alu.xtable) <- c(0, 3, 3, 3, -2,0)
+print(skeletal_muscle.alu.xtable, caption.placement="top")
+
+skeletal_muscle.LTR.data <- data.frame(summary(skeletal_muscle.LTR.lm)$coef, Sig=aster(summary(skeletal_muscle.LTR.lm)$coef[,4]))
+colnames(skeletal_muscle.LTR.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+skeletal_muscle.LTR.xtable <- xtable(skeletal_muscle.LTR.data ,
+                            caption = "Skeletal Tissue: Linear regression results for LTR Repetitive Elements",
+                            label = "tab:skeletalmuscleLTR")
+digits(skeletal_muscle.LTR.xtable) <- c(0, 3, 3, 3, -2,0)
+print(skeletal_muscle.LTR.xtable, caption.placement="top")
+@
+
+\clearpage
+\subsection*{Testes Tissue}
+<<testesKMeans>>=
+testesKmeans <- kmeans(cbind(log(violData$gene_length), violData$testes_expression), 2)
+expInd <- which(testesKmeans$centers[,2] == max(testesKmeans$centers[,2])) # The highest expressed cluster
+testesExpression <- rep(0, nrow(violData))
+testesExpression[which(testesKmeans$cluster==expInd)] <- 1
+@
+
+<<lengthVsTestes, fig.width=7, fig.height=5, include=TRUE, fig.cap="Expression values plotted as a function of gene length showing the two subpopulations in blue \\& grey">>=
+plot(violData$gene_length, violData$testes_expression, cex=0.8, log="x", xlab="Gene Length", ylab="log2(FPKM)", col="grey")
+points(violData$gene_length[which(testesExpression==1)], violData$testes_expression[which(testesExpression==1)], cex=0.8, col="blue")
+title(main="Testes Tissue: FPKM Vs Length showing K-means clustering")
+mtext("Using k=2", font=3)
+@
+
+<<testesAnalysis>>=
+# Check to see if the probability of being in the low expressed set of genes is affected by having any of the REs
+testesFisher <- matrix(0, nrow=3, ncol=2, dimnames=list(REnames, c("OddsRatio","PValue")))
+testesFisher[REnames[1],] <- unlist(fisher.test(rbind(table(violData[which(testesExpression==0), REnames[1]]),
+                                                table(violData[which(testesExpression==1), REnames[1]])))[c("estimate", "p.value")])
+testesFisher[REnames[2],] <- unlist(fisher.test(rbind(table(violData[which(testesExpression==0), REnames[2]]),
+                                                table(violData[which(testesExpression==1), REnames[2]])))[c("estimate", "p.value")])
+testesFisher[REnames[3],] <- unlist(fisher.test(rbind(table(violData[which(testesExpression==0), REnames[3]]),
+                                                table(violData[which(testesExpression==1), REnames[3]])))[c("estimate", "p.value")])
+## Include as an xtable in a later chunk
+testes.L1.lm <- lm(testes_expression~log(gene_length)+L1_utr5_IDs, data=violData, subset=which(testesExpression==1))
+testes.alu.lm <- lm(testes_expression~log(gene_length)+alu_utr5_IDs, data=violData, subset=which(testesExpression==1))
+testes.LTR.lm <- lm(testes_expression~log(gene_length)+LTR_utr5_IDs, data=violData, subset=which(testesExpression==1))
+@
+In \textbf{testes tissue}, both LTR \& L1 elements showed as increasing the probability of being called in the low-expressed group of genes (Table \ref{tab:testesFisher}; $p=$\Sexpr{formatC(testesFisher[c("L1_utr5_IDs","LTR_utr5_IDs"), "PValue"], digits=2, format="e")}). 
+Neither of the other two elements had any significant impact on whether a gene was called as low or highly expressed. \\
+\\
+For the highly expressed genes, a regression model was run for each RE including \textit{log}(Gene Length) as a parameter.
+Diagnostic plots were checked for all models (not shown) \& all model assumptions (i.e. linearity, homoscedasticity \& normality) were deemed to be valid.
+In all cases the effect of gene length was found to be significant (all $p$ \textless 1e-03), although with this tissue type exhibiting the least impact as a result of gene length in comparison to the other tissues.
+All REs showed a highly significant effect on reducing the average gene expression levels (all $p$ \textless 1e-10).
+
+<<testesLow, results='asis', include=TRUE>>=
+testes.xtable <- xtable(testesFisher,
+             caption="Odds ratio \\& $p$-values from Fisher tests for expression in testes tissue. The null hypothesis is that the probability of being declared as being from the low expressed group of genes is the same for the presence and the absence of the specific RE. An Odds Ratio of less than one, indicates a decreased probability of being assigned to the highly expressed set of genes.",
+             label="tab:testesFisher",
+             digits=matrix(c(1, 3,-2, 1, 3, 3, 1, 3,-2), nrow=3, byrow=TRUE))
+print(testes.xtable, caption.placement="top")
+@
+
+<<testesHigh, results='asis', include=TRUE>>=
+testes.L1.data <- data.frame(summary(testes.L1.lm)$coef, Sig=aster(summary(testes.L1.lm)$coef[,4]))
+colnames(testes.L1.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+testes.L1.xtable <- xtable(testes.L1.data ,
+                            caption = "Testes Tissue: Linear regression results for L1 Repetitive Elements",
+                            label = "tab:testesL1")
+digits(testes.L1.xtable) <- c(0, 3, 3, 3, -2,0)
+print(testes.L1.xtable, caption.placement="top")
+
+testes.alu.data <- data.frame(summary(testes.alu.lm)$coef, Sig=aster(summary(testes.alu.lm)$coef[,4]))
+colnames(testes.alu.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+testes.alu.xtable <- xtable(testes.alu.data ,
+                            caption = "Testes Tissue: Linear regression results for alu Repetitive Elements",
+                            label = "tab:testesalu")
+digits(testes.alu.xtable) <- c(0, 3, 3, 3, -2,0)
+print(testes.alu.xtable, caption.placement="top")
+
+testes.LTR.data <- data.frame(summary(testes.LTR.lm)$coef, Sig=aster(summary(testes.LTR.lm)$coef[,4]))
+colnames(testes.LTR.data) <- c("Estimate", "Std.Error", "T.Statistic", "P.Value", "Sig")
+testes.LTR.xtable <- xtable(testes.LTR.data ,
+                            caption = "Testes Tissue: Linear regression results for LTR Repetitive Elements",
+                            label = "tab:testesLTR")
+digits(testes.LTR.xtable) <- c(0, 3, 3, 3, -2,0)
+print(testes.LTR.xtable, caption.placement="top")
+@
+
+\clearpage
+\section*{Conclusion}
+In conclusion, all claims made about statistically significant reduction in expression due to the presence of an RE can be verified as not being confounded with gene length.
+The varying probabilities of being declared as in the low-expression group due to the presence of some of the specific REs may also be of note.\\
+\\
+I'm also dubious about those violin plots as the smoothing function applied seems to be covering over some of the true aspects of the data.
+
+\end{document}

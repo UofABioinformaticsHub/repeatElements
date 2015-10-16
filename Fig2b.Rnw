@@ -1,0 +1,222 @@
+\documentclass{article}
+\usepackage{underscore}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{titling}
+\usepackage{fullpage}
+\usepackage{pdflscape}
+
+\begin{document}
+
+\title{Data for Figure 2b}
+\author{Steve Pederson\\
+        Adelaide University\\
+        Bioinformatics Centre}
+\maketitle
+
+<<loadPackages, include=FALSE, echo=FALSE>>=
+library(ggplot2)
+library(MASS)
+library(matrixStats)
+library(vioplot)
+library(xtable)
+library(multcomp)
+library(boot)
+source("extraFunctions.R")
+@
+
+<<knitrSetup, include=FALSE>>=
+knit_hooks$set(crop=hook_pdfcrop)
+opts_knit$set(self.contained=FALSE)
+opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, include=FALSE, echo=FALSE, cache=TRUE)
+Sys.setenv(TEXINPUTS=getwd(), BIBINPUTS=getwd(), BSTINPUTS=getwd())
+pdf.options(useDingbats=TRUE)
+@
+
+
+<<loadData>>=
+fig2 <- read.csv("Figure2.csv", header=FALSE, stringsAsFactor=FALSE)
+colnames(fig2) <- c("Region", "RE", "Tissue", "bpRETE", "bpRE")
+fig2$Region <- factor(fig2$Region, levels=c("5'UTR", "Start", "CDS-exon", "CDS-intron", "Stop", "3'UTR", "Intergenic"))
+fig2$RE <- factor(fig2$RE, levels=c("Active_promoter","Weak_promoter", "Strong_enhancer", "Weak_enhancer","Repressor", "Insulator"))
+levels(fig2$RE)[1:4] <- c("Active Promoter","Weak Promoter", "Strong Enhancer", "Weak Enhancer")
+fig2$Tissue <- as.factor(fig2$Tissue)
+fig2[,4:5] <- fig2[,4:5]/100 # Convert back to proportions
+@
+
+
+<<collectStats>>=
+n <- length(levels(fig2$RE))*length(levels(fig2$Tissue))
+# First look within each Regulatory Element across all regions
+fig2bstats <- data.frame(Tissue = factor(rep(levels(fig2$Tissue), each=length(levels(fig2$RE))), levels=levels(fig2$Tissue)),
+                       RE = factor(rep(levels(fig2$RE), times=length(levels(fig2$Tissue))), levels=levels(fig2$RE)),
+                       Class = rep(c("BG", "RETE"), each=n))
+temp <- matrix(0, nrow=n*2, ncol=3, dimnames=list(c(),c("mean","lower","upper")))
+for (i in 1:n){
+  x <- logit(fig2$bpRE[intersect(which(fig2$Tissue==fig2bstats$Tissue[i]), which(fig2$RE==fig2bstats$RE[i]))])
+  temp[i, 1] <- inv.logit(mean(x))
+  temp[i, 2] <- inv.logit(mean(x)-sd(x))
+  temp[i, 3] <- inv.logit(mean(x)+sd(x))
+  y <- logit(fig2$bpRETE[intersect(which(fig2$Tissue==fig2bstats$Tissue[i]), which(fig2$RE==fig2bstats$RE[i]))])
+  temp[i + n, 1] <- inv.logit(mean(y))
+  temp[i + n, 2] <- inv.logit(mean(y)-sd(y))
+  temp[i + n, 3] <- inv.logit(mean(y)+sd(y))
+}
+fig2bstats <- data.frame(fig2bstats, 100*temp)
+## Change the lebelling for better reading on facets
+levels(fig2bstats$Class)[levels(fig2bstats$Class)=="BG"] <- "RE in Tissue"
+levels(fig2bstats$Class)[levels(fig2bstats$Class)=="RETE"] <- "TE in RE"
+@
+
+\section*{Data Preparation}
+
+The same approach was utilised for this section as for Figure 2a.
+
+\begin{landscape}
+<<fig2b, fig.height=7, fig.width=11, include=TRUE, fig.cap='Density of Regulatory Elements shown as an average across multiple genomic regions, denoted in percentage of base pairs (\\%bp), and density of Transposable Elements within Regulatory Elements.'>>=
+y_ranges <- data.frame(Tissue=rep("Blood cancer",2), RE=rep("Active Promoter", 2), Class=c("RE in Tissue","TE in RE"), mean=c(10, 4))
+ggplot(fig2bstats, aes(x=Tissue, y=mean, fill=Tissue)) +
+  facet_grid(Class ~ RE, scales="free_y") +
+  geom_bar(stat = "identity", position="dodge") + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.2) +
+  ylab("Percentage of Base Pairs") + 
+  xlab("") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  scale_y_continuous(expand=c(0,0)) + 
+  geom_blank(data=y_ranges, aes(x=Tissue, y=mean))
+@
+\end{landscape}
+
+\section{The Baseline Densities of Regulatory Elements Across Tissues}
+
+<<setupBGObjects>>=
+## The basic approach here will be to perform a series of pairwise comparisons within each region
+## Raw p-values for each comparison will not be adjusted until all comparisons have been performed
+## Setup an array capable of holding each set of comparisons
+comps <- c("Blood normal - Blood cancer", "Blood vessel normal - Blood cancer", "Breast normal - Blood cancer", "Liver cancer - Blood cancer", "Lung normal - Blood cancer", "Blood vessel normal - Blood normal", "Breast normal - Blood normal", "Liver cancer - Blood normal", "Lung normal - Blood normal", "Breast normal - Blood vessel normal", "Liver cancer - Blood vessel normal", "Lung normal - Blood vessel normal", "Liver cancer - Breast normal", "Lung normal - Breast normal", "Lung normal - Liver cancer")
+regEls <- levels(fig2bstats$RE)
+bgComps <- array(0, dim=c(length(comps), 5, 6), dimnames=list(comps, c("coefficients", "sigma", "Tstat", "Pvalues", "adjP"), regEls))
+bgList.glht <- vector("list", 6)
+names(bgList.glht) <- regEls
+for (i in 1:6) {
+  bgList.glht[[i]] <- glht(lm(logit(bpRE) ~ 0 + Tissue, data=subset(fig2, RE==names(bgList.glht)[i])), linfct=mcp(Tissue="Tukey"))
+  bgComps[,1:4,i] <- as.matrix(data.frame(summary(bgList.glht[[i]], test=adjusted(type="none"))$test[3:6]))
+}
+bgComps[,5,] <- p.adjust(bgComps[,4,], method="bonf")
+
+@
+For all tissues, the average density of regulatory elements was estimated across all genomic regions using the proportion of base pairs transformed using the logit function.
+Pairwise comparisons were then performed for the average densities, and $p$-values were adjusted using Bonferroni's procedure at the family level, i.e. across all regulatory elements in all tissues.
+
+\subsection*{Promoters \& Enhancers in each Tissue Type}
+<<bgAP>>=
+# Manually inspect & notice that there is nothing happening
+bgComps[,5,] < 0.05
+@
+Pairwise comparisons for Promoters \& Enhancers showed no variability in the density of these REs across any tissue type
+
+\subsection*{Repressors and Insulators in Genomic Regions}
+<<bgRP, include=TRUE, results='asis'>>=
+bgRP <- data.frame(Estimate=bgComps[,"coefficients","Repressor"], 
+                   Tstat=bgComps[,"Tstat","Repressor"],
+                   PValue = "",
+                   Sig = aster(bgComps[,"adjP","Repressor"]),
+                   stringsAsFactors=FALSE)
+bgRP$PValue[which(bgComps[,"adjP","Repressor"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Repressor"] > 0.001),"adjP","Repressor"], digits=2)
+bgRP$PValue[which(bgComps[,"adjP","Repressor"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Repressor"] <= 0.001),"adjP","Repressor"], digits=3, scientific=TRUE)
+bgRP$PValue[which(bgComps[,"adjP","Repressor"] == 0)] <- "<2e-16"
+print(xtable(bgRP, 
+             digits = c(0,3,3,0,0), 
+             align = c("r","r","r","r","l"),
+             label = "tab:bgRP", 
+             caption = "Pairwise comparisons for density of \\textbf{Repressors} between tissue types. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first tissue, whereas a negative value equates to a higher density in the second tissue.}"), 
+      caption.placement="top")
+@
+
+Whilst most pairwise comparisons don't seem to be of immediate interest biologically, the statistically significant difference between the density of Repressors between Blood cancer \& Blood normal may be of some interest (Table \ref{tab:bgRP}), however it should be noted that due to the significant differences between normal tissue types, the biological relevance of this is unclear.
+Again for Insulators (Table \ref{tab:bgIN}), the biological relevance of any statistically significant differences in any densities is unclear.
+
+<<bgIN, include=TRUE, results='asis'>>=
+bgIN <- data.frame(Estimate=bgComps[,"coefficients","Insulator"], 
+                   Tstat=bgComps[,"Tstat","Insulator"],
+                   PValue = "",
+                   Sig = aster(bgComps[,"adjP","Insulator"]),
+                   stringsAsFactors=FALSE)
+bgIN$PValue[which(bgComps[,"adjP","Insulator"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Insulator"] > 0.001),"adjP","Insulator"], digits=2)
+bgIN$PValue[which(bgComps[,"adjP","Insulator"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Insulator"] <= 0.001),"adjP","Insulator"], digits=3, scientific=TRUE)
+bgIN$PValue[which(bgComps[,"adjP","Insulator"] == 0)] <- "<2e-16"
+print(xtable(bgIN, 
+             digits = c(0,3,3,0,0), 
+             align = c("r","r","r","r","l"),
+             label = "tab:bgIN", 
+             caption = "Pairwise comparisons for density of \\textbf{Insulators} between tissue types. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first tissue, whereas a negative value equates to a higher density in the second tissue.}"), 
+      caption.placement="top")
+@
+
+
+\clearpage
+\section{The Densities of Transposable Elements Within Regulatory Elements Across Tissues}
+<<setupREObjects>>=
+## The basic approach here will be to perform a series of pairwise comparisons within each region
+## Raw p-values for each comparison will not be adjusted until all comparisons have been performed
+## Setup an array capable of holding each set of comparisons
+teComps <- array(0, dim=c(length(comps), 5, 6), dimnames=list(comps, c("coefficients", "sigma", "Tstat", "Pvalues", "adjP"), regEls))
+teList.glht <- vector("list", 6)
+names(teList.glht) <- regEls
+for (i in 1:6) {
+  teList.glht[[i]] <- glht(lm(logit(bpRETE) ~ 0 + Tissue, data=subset(fig2, RE==names(teList.glht)[i])), linfct=mcp(Tissue="Tukey"))
+  teComps[,1:4,i] <- as.matrix(data.frame(summary(teList.glht[[i]], test=adjusted(type="none"))$test[3:6]))
+}
+teComps[,5,] <- p.adjust(teComps[,4,], method="bonf")
+teComps[,5,] < 0.05
+@
+The same approach as for Regulatory Elements across tissues was applied for Transposable Elements within Regulatory Elements (i.e. RETEs) within all sampled tissues.
+After adjustment with the Bonferroni procedure, no significant differences were detected.
+
+\section{The Densities of Transposable Elements Within Genomic Regions Across Tissues}
+Simple inspection of Figure \ref{fig:fig2b2} makes it very clear that there is no significant difference in the density of TEs within any genomic regions as a result of tissue type when averaging across Regulatory Elements.
+
+\section{Conclusion}
+I would advise against including the figure that was previously Figure 2B as to my mind, there is little to no biological interest in this approach.
+
+<<collectStats2>>=
+n <- length(levels(fig2$Region))*length(levels(fig2$Tissue))
+# First look within each Regulatory Element across all regions
+fig2bstats <- data.frame(Tissue = factor(rep(levels(fig2$Tissue), each=length(levels(fig2$Region))), levels=levels(fig2$Tissue)),
+                       Region = factor(rep(levels(fig2$Region), times=length(levels(fig2$Tissue))), levels=levels(fig2$Region)),
+                       Class = rep(c("BG", "RETE"), each=n))
+temp <- matrix(0, nrow=n*2, ncol=3, dimnames=list(c(),c("mean","lower","upper")))
+for (i in 1:n){
+  x <- logit(fig2$bpRE[intersect(which(fig2$Tissue==fig2bstats$Tissue[i]), which(fig2$Region==fig2bstats$Region[i]))])
+  temp[i, 1] <- inv.logit(mean(x))
+  temp[i, 2] <- inv.logit(mean(x)-sd(x))
+  temp[i, 3] <- inv.logit(mean(x)+sd(x))
+  y <- logit(fig2$bpRETE[intersect(which(fig2$Tissue==fig2bstats$Tissue[i]), which(fig2$Region==fig2bstats$Region[i]))])
+  temp[i + n, 1] <- inv.logit(mean(y))
+  temp[i + n, 2] <- inv.logit(mean(y)-sd(y))
+  temp[i + n, 3] <- inv.logit(mean(y)+sd(y))
+}
+fig2bstats <- data.frame(fig2bstats, 100*temp)
+## Change the lebelling for better reading on facets
+levels(fig2bstats$Class)[levels(fig2bstats$Class)=="BG"] <- "Region in Tissue"
+levels(fig2bstats$Class)[levels(fig2bstats$Class)=="RETE"] <- "TE in Region"
+@
+
+\begin{landscape}
+<<fig2b2, fig.height=7, fig.width=11, include=TRUE, fig.cap='Density of Regions shown across multiple genomic regions, denoted in percentage of base pairs (\\%bp), and density of Transposable Elements within Regions.'>>=
+y_ranges <- data.frame(Tissue=rep("Blood cancer",2), RE=rep("5'UTR", 2), Class=c("Region in Tissue","TE in Region"), mean=c(17, 3))
+ggplot(fig2bstats, aes(x=Tissue, y=mean, fill=Tissue)) +
+  facet_grid(Class ~ Region, scales="free_y") +
+  geom_bar(stat = "identity", position="dodge") + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.2) +
+  ylab("Percentage of Base Pairs") + 
+  xlab("") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  scale_y_continuous(expand=c(0,0)) + 
+  geom_blank(data=y_ranges, aes(x=Tissue, y=mean))
+@
+\end{landscape}
+
+
+\end{document}

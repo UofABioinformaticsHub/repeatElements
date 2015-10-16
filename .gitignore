@@ -1,0 +1,12 @@
+.Rproj.user
+.Rhistory
+.RData
+*.Rproj
+*tex
+*gz
+*aux
+*log
+*pdf
+cache/*
+figure/*
+SupportingMaterials/*
