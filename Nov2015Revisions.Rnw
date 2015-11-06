@@ -1,0 +1,304 @@
+\documentclass{article}
+\usepackage{underscore}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{titling}
+\usepackage{a4wide}
+\usepackage{placeins}
+
+\begin{document}
+
+\title{Re-Analysis of Tissue Data}
+\author{Steve Pederson\\
+        Adelaide University\\
+        Bioinformatics Hub}
+\maketitle
+
+\section{Required R Packages}
+
+<<loadPackages, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE>>=
+library(ggplot2)
+library(readr)
+library(dplyr)
+library(reshape2)
+library(matrixStats)
+library(xtable)
+source("extraFunctions.R")
+library(knitr)
+@
+
+<<knitrSetup, include=FALSE>>=
+knit_hooks$set(crop=hook_pdfcrop)
+opts_knit$set(self.contained=FALSE)
+opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, include=TRUE, echo=TRUE)
+pdf.options(useDingbats=TRUE)
+@
+
+\section{The original FPKM data}
+
+The original data, as represented by the FPKM measurement is briefly shown in this section.
+Note the bi-modal distributions observed in this data (Figures \ref{fig:fpkmViolinPlots} \& \ref{fig:fpkmDensities}), with genes clearly observable as expressed, and not-expressed. \\
+
+\noindent Two significant changes have been made in the current dataset.
+\begin{enumerate}
+  \item The main expression measure is now TPM, instead of FPKM
+  \item The expression measure has not been log-transformed using the adjustment $\log (x +$ 1e-05).
+  Undetectable genes will now have log-transformed expression values of $-\infty$ and can be simply removed from the analysis as non-expressed.
+\end{enumerate}
+
+As a result of these two changes, the bimodal distribution is no longer present in the data, and the analysis is greatly simplified.
+
+
+<<fpkmData, cache=TRUE>>=
+fpkmData <- read_delim("vioplot_data", "\t")
+fpkmData$RE <- fpkmData %>% 
+  dplyr::select(contains("utr5")) %>% 
+  rowSums %>% 
+  as.logical
+@
+
+
+<<fpkmViolinPlots, echo=FALSE, fig.width=6, fig.height=5, include=TRUE, fig.cap='FPKM: Violin plot for adipose tissue based on the presence or absence of a repeat element.'>>=
+ggplot(fpkmData, aes(x=RE, y=adipose_expression)) + 
+  geom_violin(fill="darkred") +
+  geom_boxplot(width=0.1, fill="black", outlier.colour=NA) +
+  stat_summary(fun.y=median, geom="point", fill="white", shape=21, size=5) +
+  ylab("log2(FPKM)") + 
+  xlab("Repeat Element") +
+  scale_y_continuous(expand=c(0,0)) +
+  ggtitle("Adipose Tissue") +
+  theme(panel.background=element_rect("white"))
+@
+
+<<fpkmDensities, echo=FALSE, fig.cap='Expression densities for all tissues using FPKM data.', cache=TRUE, dependson='fpkmData'>>=
+fpkmData %>% 
+  dplyr::select(ID, contains("expression"), RE, gene_length) %>%
+  melt(c("ID", "RE", "gene_length"), 
+       grep("expression", colnames(fpkmData), value = TRUE),
+       "Tissue",
+       value.name = "FPKM") %>%
+  mutate(Tissue = gsub("_expression", "", Tissue)) %>%
+  mutate(Tissue = capwords(Tissue)) %>%
+ggplot(aes(x = FPKM, fill = RE)) +
+  geom_density(alpha=0.3) +
+  facet_wrap(~Tissue, 3) +
+  theme_bw() +
+  labs(fill = "Repeat Element")
+@
+
+\clearpage
+\section{TPM data}\label{sec:TPM}
+<<TPMData, cache=TRUE>>=
+oldRE <- grep("utr5", colnames(fpkmData), value = TRUE)
+tpmFile <- "new_whole_gene_expression_dataset.txt"
+tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
+  select(ID, length, contains("TPM"), contains("utr5")) %>%
+  tbl_df
+allTE <- grep("utr5", colnames(tpmData), value=TRUE)
+tpmData$RE <- tpmData %>% 
+  dplyr::select(one_of(allTE)) %>%
+  rowSums %>% 
+  as.logical
+@
+
+<<tpmDensities, echo=FALSE, fig.width=7, fig.height=5, fig.cap='Expression densities for all tissues using TPM instead of FPKM data. Genes with repeat elements are shown in blue, whilst those without are shown in red.', cache=TRUE, dependson='TPMData'>>=
+tpmData %>% 
+  dplyr::select(ID, contains("TPM"), RE, length) %>%
+  melt(c("ID", "RE", "length"), 
+       grep("TPM", colnames(tpmData), value = TRUE),
+       "Tissue",
+       value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue)) %>%
+  mutate(Tissue = capwords(Tissue)) %>%
+  filter(TPM > -Inf) %>%
+ggplot(aes(x = TPM, fill = RE)) +
+  geom_density(alpha=0.3) +
+  facet_wrap(~Tissue, 3) +
+  theme_bw() +
+  labs(fill = "Repeat Element",
+       x = "log(TPM)",
+       y = "Density") +
+  guides(fill = FALSE)
+@
+
+The new dataset contained annotations for multiple elements (e.g. utr3, prox etc) not included in the initial analysis \& these were removed for this particular analysis.
+These can be re-incorporated later as required. \\
+
+The previously mentioned changes to measurement of gene expression have completely removed the low-end noise seen in Figure \ref{fig:fpkmViolinPlots}, and as such the general densities as seen in Figure \ref{fig:tpmDensities} will be preferable to violin plots.
+The patterns observed in Figure \ref{fig:tpmDensities} also show the clear differences in distributions for the expression levels for genes/transcripts containing an RE. \\
+
+This change to the un-adjusted TPM \emph{completely removes the requirement for an Fisher Tests based on classification into low- or high- expressed gene groups}, and these results can now be removed from the submitted article.
+This also means that any references to Odds Ratios can also be removed, further removing the point of confusion.
+The following analysis is also much more straight forward. \\
+
+In order to investigate whether length was having any effect on the presence of an RE, the distributions of gene length were compared across the two sets of genes for each tissue type.
+Unsurprisingly, longer genes were more likely to have an RE (Figure \ref{fig:lengthDensities}).
+
+<<lengthDensities, echo=FALSE, fig.width=4, fig.height=4, fig.cap='Gene length distributions. Genes with repeat elements are shown in blue, whilst those without are shown in red.', cache=TRUE, dependson='TPMData'>>=
+tpmData %>% 
+ggplot(aes(x = log(length), fill = RE)) +
+  geom_density(alpha=0.3) +
+  theme_bw() +
+  labs(fill = "Repeat Element",
+       x = "log(Length)",
+       y = "Density") +
+  guides(fill = FALSE)
+@
+
+
+<<scaledTPM, cache=TRUE, dependson='TPMData'>>=
+scaledTPM <- tpmData %>% 
+  dplyr::select(ID, contains("TPM"), RE, length) %>%
+  melt(c("ID", "RE", "length"), 
+       grep("TPM", colnames(tpmData), value = TRUE),
+       "Tissue",
+       value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue)) %>%
+  mutate(Tissue = capwords(Tissue)) %>%
+  filter(TPM > -Inf) %>%
+  mutate(scaledTPM = TPM - log(length)) %>%
+  tbl_df
+@
+
+<<tpmPerNt,echo = FALSE, fig.width=7, fig.height=5, include=TRUE, fig.cap='TPM values scaled to account for length. Genes with repeat elements are shown in blue, whilst those without are shown in red.'>>=
+ggplot(scaledTPM, aes(x = TPM - log(length), fill = RE)) +
+  geom_density(alpha=0.3) +
+  facet_wrap(~Tissue, 3) +
+  theme_bw() +
+  labs(fill = "Repeat Element",
+       x = "log(TPM/length)",
+       y = "Density") +
+  guides(fill = FALSE)
+@
+
+The measurement TPM is independent of length, and as such these measurements were divided by gene_length to give TPM:Nucleotide and thus account for any effects of gene length on these values (Figure \ref{fig:tpmPerNt}).
+
+\paragraph{NB:} \emph{I assumed that the TPM data is transformed using the natural logarithm. 
+If this was an incorrect assumption, it will simply require the addition of a scalar to correct for this.} \\
+
+\noindent In all tissues, the scaled TPM values for genes with REs were clearly distributed below those of genes without REs.
+
+<<lm>>=
+lmTPM <- lm(scaledTPM ~ 0 + Tissue + RE, scaledTPM)
+@
+
+<<tabRE, echo=FALSE, results='asis'>>=
+summary(lmTPM) %>% 
+  coef %>% 
+  as.data.frame %>%
+  add_rownames("Coefficient") %>%
+  mutate(Coefficient = gsub("Tissue", "Tissue = ", Coefficient),
+         Coefficient = gsub("RETRUE", "Repeat Element", Coefficient)) %>%
+  xtable(caption = "Model Coefficients for the effect of the presence of repeat element across all tissues. No $p$-value adjustment was required due to the extreme $p$-values observed and the high level of significance.",
+         label = "tab:lmTPM", 
+         digits = c(0, 0, 2, 3, 2, -2)) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+As the plots in Figure \ref{fig:tpmPerNt} showed no clear violations of normality, a simple linear regression model was run across all tissues.
+The adjusted $R^2$ value for the model was \Sexpr{format(summary(lmTPM)$adj.r.squared, digits=4)} indicating a reasonable fit, and the coefficient for the presence of an RE was highly significant (Table \ref{tab:lmTPM}), indicating that on average, genes with an RE in the 5' UTR will have a lower TPM value per nucleotide. \\
+
+The above model was also fit (data not shown) incorporating an interaction term for the presence of an RE with the Tissue type, in order to assess whether any tissue specific impacts were detectable.
+None were detected (all raw $p$-values $> 0.01$).
+
+\section{Individual Analysis of UTR5 Elements}
+
+<<individualElements>>=
+indData <- tpmData %>%  
+  dplyr::select(ID, contains("TPM"), contains("IDs") , length) %>%
+  melt(c("ID", "length", allTE), 
+       grep("TPM", colnames(tpmData), value = TRUE),
+       "Tissue",
+       value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue)) %>%
+  mutate(Tissue = capwords(Tissue)) %>%
+  filter(TPM > -Inf) %>%
+  mutate(scaledTPM = TPM - log(length)) %>%
+  tbl_df 
+@
+
+<<indLim, tidy=TRUE, cache=TRUE, results='hide'>>=
+indLm <- lm(scaledTPM ~ 0 + Tissue + (alu_utr5_IDs + L1_utr5_IDs + L2_utr5_IDs + LTR_utr5_IDs + mir_utr5_IDs)^2,
+   data = indData) %>%
+  step
+@
+
+The effects of element were also assessed individually, including any 2-way interactions in the model to account for the presence of up to two elements.
+Interaction terms offer three possibilities:
+\begin{enumerate}
+  \item A non-significant term $\Rightarrow$ the two elements act additively
+  \item A significant and positive term $\Rightarrow$ the two elements do not act additively
+  \item A significant and negative term $\Rightarrow$ there is reduction in expression beyond what would be expected from a pure additive model.
+\end{enumerate}
+
+The model was initially fitted incorporating all 2-way interaction terms, then any redundant terms were removed in an automated fashion using the inbuilt R function \texttt{step}.
+After fitting, the model had an adjusted $R^2$ value of \Sexpr{format(summary(indLm)$adj.r.squared, digits=4)}.
+Diagnostic plots are included as Figure \ref{fig:indLmPlot}.
+As seen in Table \ref{tab:lmIndEl}, the results can be summarised by:
+\begin{itemize}
+  \item All elements were found to contribute to reduced expression (all $P_{adj}<=4 \times 10^{-3}$).
+  L2 elements appear to have the least significant impact on repression.
+  \item A positive and significant term was found for alu:mir elements indicating no additive effects for these terms. 
+  This term (alu:mir = \Sexpr{format(coef(indLm)["alu_utr5_IDs:mir_utr5_IDs"], digits =3)}) more than nullified the individual effects. 
+  The biological implications of this are not clear.
+  \item A positive and near significant term was also found for alu:L1 \& alu:LTR elements, of a similar magnitude to the alu term alone.
+  \item All other interaction terms were not significant, thus these elements appear to act additively.
+\end{itemize}
+
+<<indLimXTab, echo=FALSE, include=TRUE, results='asis'>>=
+summary(indLm) %>% 
+  coef %>% 
+  as.data.frame %>% 
+  add_rownames("Coefficient") %>% 
+  mutate(Coefficient = gsub("Tissue", "Tissue = ", Coefficient),
+         Coefficient = gsub("_utr5_IDs", "", Coefficient),
+         Padj = p.adjust(`Pr(>|t|)`, method = "bonferroni"),
+         ` ` =  aster(Padj)) %>%
+  select(-contains("Std")) %>%
+  rename(T = `t value`) %>%
+  xtable(caption = "Analysis of the effects of individual elements. All $p$-values are adjusted using Bonferroni's method. Zero $p$ values indicate a value below than the limits of machine precision. Significance levels based on the adjusted $p$-values are indicated using asterisks as per the standard R conventions.",
+         digits = c(0, 0, 3, 3, -2, -2, 0),
+         label = "tab:lmIndEl") %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+
+\clearpage
+\appendix
+
+<<indLmPlot, fig.cap='Diagnostic plots for fitting of individual TEs. No violations of the assumptions for a linear regression model are evident.', cache=TRUE, dependson='indLm', echo=FALSE, include=FALSE>>=
+png("figure/diagPlotsIndLm.png", height = 7, width = 7, units = "in", res = 300)
+par(mfrow=c(2, 2))
+plot(indLm)
+par(mfrow=c(1, 1))
+dev.off()
+@
+
+\begin{figure}
+  \centering 
+  \includegraphics[width=.95\textwidth]{figure/diagPlotsIndLm.png} 
+  \caption[Diagnostic plots for fitting of individual TEs]{Diagnostic plots for fitting of individual TEs. 
+  No violations of the assumptions for a linear regression model are evident.}
+  \label{fig:indLmPlot}
+\end{figure}
+
+\FloatBarrier
+\section{Additional R Info}
+
+The above required the additional functions from the file \texttt{extraFunctions.R} as provided below
+
+<<printCapwords, echo=TRUE, include=TRUE, tidy=TRUE, comment="", results='markup'>>=
+capwords
+@
+
+
+<<sessionInfo, echo=FALSE, include=TRUE, results='markup'>>=
+sessionInfo()
+@
+
+
+
+\end{document}

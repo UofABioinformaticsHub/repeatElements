@@ -1,0 +1,75 @@
+\documentclass{article}
+\usepackage{underscore}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{titling}
+
+\begin{document}
+
+\title{An alternative Approach For Assessing the Global\\
+Impact of TEs on Gene Expression}
+\author{Steve Pederson\\
+        Adelaide University\\
+        Bioinformatics Centre}
+\maketitle
+
+<<loadPackages, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE>>=
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(readr)
+library(knitr)
+# library(MASS)
+# library(matrixStats)
+# library(vioplot)
+# library(xtable)
+source("extraFunctions.R")
+@
+
+<<knitrSetup, include=FALSE>>=
+knit_hooks$set(crop=hook_pdfcrop)
+opts_knit$set(self.contained=FALSE)
+opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, include=TRUE, echo=TRUE, cache=FALSE)
+#Sys.setenv(TEXINPUTS=getwd(), BIBINPUTS=getwd(), BSTINPUTS=getwd())
+pdf.options(useDingbats=TRUE)
+@
+
+\section*{Load the Data}
+<<loadData>>=
+violData <- read_delim("vioplot_data", "\t") %>%
+  mutate(RE = as.logical(L1_utr5_IDs + alu_utr5_IDs + LTR_utr5_IDs ),
+         meanFPKM = (adipose_expression + brain_expression + 
+                       kidney_expression + liver_expression +
+                       skeletal_muscle_expression + testes_expression)/6) %>%
+  filter(meanFPKM != min(adipose_expression)) 
+@
+First the data was loaded, and the presence of any repeat element was noted as a \texttt{logical} variable.
+Genes were were declared as not expressed if the FPKM was at the minimum value (\Sexpr{round(min(violData$adipose_expression), 3)}) across all tissue types.
+This left \Sexpr{commas(nrow(violData))} genes in the dataset.
+
+\section*{Exploratory Plots}
+Then the expression densities were overlaid for each tissue type.
+I was wondering if this might be a better way to visualise the distributions instead of violin plots?
+<<longData>>=
+longData <- violData %>% 
+  dplyr::select(ID, contains("expression"), RE, gene_length) %>%
+  melt(c("ID", "RE", "gene_length"), 
+       grep("expression", colnames(violData), value = TRUE),
+       "Tissue",
+       value.name = "FPKM") %>%
+  mutate(Tissue = gsub("_expression", "", Tissue)) %>%
+  mutate(Tissue = capwords(Tissue))
+@
+
+<<plotDensities, cache=TRUE, fig.cap="Expression densities for genes with \\& without Repeat Elements.">>=
+ggplot(longData, aes(x = FPKM, fill = RE)) +
+  geom_density(alpha=0.3) +
+  facet_wrap(~Tissue, 3) +
+  theme_bw() +
+  labs(fill = "Repeat Element")
+@
+
+
+
+\end{document}
