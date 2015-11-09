@@ -36,7 +36,7 @@ pdf.options(useDingbats=TRUE)
 @
 
 <<TPMData, cache=TRUE>>=
-tpmFile <- "new_whole_gene_expression_dataset.txt"
+tpmFile <- file.path("data", "new_whole_gene_expression_dataset.txt")
 tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
   select(ID, length, contains("TPM"), contains("utr5")) %>%
   tbl_df
@@ -47,8 +47,8 @@ tpmData$RE <- tpmData %>%
   as.logical
 @
 
-<<scaledTPM, cache=TRUE, dependson='TPMData'>>=
-scaledTPM <- tpmData %>% 
+<<normalisedTPM, cache=TRUE, dependson='TPMData'>>=
+normalisedTPM <- tpmData %>% 
   dplyr::select(ID, contains("TPM"), RE, length) %>%
   melt(c("ID", "RE", "length"), 
        grep("TPM", colnames(tpmData), value = TRUE),
@@ -57,13 +57,13 @@ scaledTPM <- tpmData %>%
   mutate(Tissue = gsub("_TPM", "", Tissue)) %>%
   mutate(Tissue = capwords(Tissue)) %>%
   filter(TPM > -Inf) %>%
-  mutate(scaledTPM = TPM - log(length)) %>%
+  mutate(normalisedTPM = TPM - log(length)) %>%
   tbl_df
 @
 
 \section{Individual Analysis of UTR5 Elements}
 
-The data and packages were loaded as beforehand, and the TPM values were once again scaled for length.
+The data and packages were loaded as beforehand, and the TPM values were once again normalised for length.
 Instead of following the global patterns, the behaviours of the individual elements was explored.
 Before proceeding any further, the patterns of the REs was investigated.
 
@@ -77,7 +77,7 @@ indData <- tpmData %>%
   mutate(Tissue = gsub("_TPM", "", Tissue)) %>%
   mutate(Tissue = capwords(Tissue)) %>%
   filter(TPM > -Inf) %>%
-  mutate(scaledTPM = TPM - log(length)) %>%
+  mutate(normalisedTPM = TPM - log(length)) %>%
   tbl_df 
 @
 
@@ -132,7 +132,7 @@ The analysis was instead performed checking for any tissue specific effects for 
 The initial model was specified for all elements, then using the automated function \texttt{step} interaction terms for tissue and elements were removed if not contributing significantly to the model fit.
 
 <<indLim, tidy=TRUE, cache=TRUE, results='hide'>>=
-indLm <- lm(scaledTPM ~ 0 +  
+indLm <- lm(normalisedTPM ~ 0 + length +
               Tissue*(alu_utr5_IDs + L1_utr5_IDs + L2_utr5_IDs + LTR_utr5_IDs + mir_utr5_IDs),
    data = indData) %>%
   step
@@ -143,10 +143,10 @@ After fitting, the model had an adjusted $R^2$ value of \Sexpr{format(summary(in
 Diagnostic plots are included as Figure \ref{fig:indLmPlot}.
 As seen in Table \ref{tab:lmIndEl}, the results can be summarised by:
 \begin{itemize}
-  \item \textit{alu} elements do not appear to be contributing to reduced gene expression ($P_{adj} = 1$)
+  \item \textit{alu} \& \textit{L1} elements do not appear to be contributing to reduced gene expression and were removed from the model as part of the step-wise fitting procedure.
   \item All other elements do appear to contribute to reduced gene expression, with LTR elements showing the greatest impact
   \item It should be noted clearly however, that the estimated effects of each element are for Adipose Tissue as the baseline, with the interaction terms describing the difference in each tissue in comparison to this baseline.
-  \item LTR elements seem to have a reduced impact on gene expression in the Brain ($P_{adj} = 2.08E-03$), where the reduction of gene expression only appears to be about a half of what would be expected in Adipose Tissue.
+  \item LTR elements seem to have a reduced impact on gene expression in the Brain ($P_{adj} = 1.80E-03$), where the reduction of gene expression only appears to be about one third of what would be expected in Adipose Tissue.
   \item LTR elements in Skeletal Muscle and Liver seem to behave near identically to Adipose tissue, whilst in Kidney and Testes, non-significant, but positive interaction terms were obtained.
   \item No other Tissue-specific behaviours were detected.
 \end{itemize}
@@ -158,12 +158,14 @@ summary(indLm) %>%
   add_rownames("Coefficient") %>% 
   mutate(Coefficient = gsub("Tissue", "Tissue = ", Coefficient),
          Coefficient = gsub("_utr5_IDs", "", Coefficient),
+         Coefficient = gsub("length", "Length", Coefficient),
          Padj = p.adjust(`Pr(>|t|)`, method = "bonferroni"),
          ` ` =  aster(Padj)) %>%
   select(-contains("Std")) %>%
   rename(T = `t value`) %>%
   xtable(caption = "Analysis of the effects of individual elements across all tissues. All $p$-values are adjusted using Bonferroni's method. Zero $p$ values indicate a value below than the limits of machine precision. Significance levels based on the adjusted $p$-values are indicated using asterisks as per the standard R conventions.",
-         digits = c(0, 0, 3, 3, -2, -2, 0),
+         digits = rbind(c(0, 0, -3, 3, -2, -2, 0),
+                        matrix(c(0, 0, 3, 3, -2, -2, 0), ncol = 7, nrow = length(coef(indLm)) -1, byrow = TRUE)),
          label = "tab:lmIndEl") %>%
   print(caption.placement = "top",
         include.rownames = FALSE)
@@ -173,7 +175,7 @@ summary(indLm) %>%
 \clearpage
 \appendix
 
-<<indLmPlot, fig.cap='Diagnostic plots for fitting of individual TEs. No violations of the assumptions for a linear regression model are evident.', cache=TRUE, dependson='indLm', echo=FALSE, include=FALSE>>=
+<<indLmPlot, cache=TRUE, dependson='indLm', echo=FALSE, include=FALSE>>=
 png("figure/diagPlotsIndLm.png", height = 7, width = 7, units = "in", res = 300)
 par(mfrow=c(2, 2))
 plot(indLm)
@@ -185,7 +187,8 @@ dev.off()
   \centering 
   \includegraphics[width=.95\textwidth]{figure/diagPlotsIndLm.png} 
   \caption[Diagnostic plots for fitting of individual TEs across all Tissues]{Diagnostic plots for fitting of individual TEs. 
-  No violations of the assumptions for a linear regression model are evident.}
+  Note the appearance of outlier points which are due to the long genes such as TTN and MUC16. 
+  Other than these points, no violations of the model assumptions were deemed to be serious enough to invalidate the model.}
   \label{fig:indLmPlot}
 \end{figure}
 
