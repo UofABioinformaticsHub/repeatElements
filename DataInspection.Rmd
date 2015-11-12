@@ -1,0 +1,220 @@
+---
+title: "Data Inspection"
+author: "Steve Pederson"
+date: "12/11/2015"
+output: html_document
+---
+
+# Inspection of Data Before Re-Analysis
+
+Before re-analysing the data a thorough inspection of the data structure needed to be undertaken.
+This can shed light on the occurrence rates of TEs within each region, along with the co-occurrence rates within each region.
+
+Firstly, the data was loaded whilst ignoring the FPKM data, and the required *R* packages were loaded.
+
+```{r, message=FALSE}
+library(ggplot2)
+library(funsForLu)
+library(dplyr)
+library(magrittr)
+library(reshape2)
+library(matrixStats)
+library(VennDiagram)
+library(knitr)
+source("extraFunctions.R")
+```
+
+
+```{r, cache=TRUE}
+tpmFile <- file.path("data", "new_whole_gene_expression_dataset.txt")
+tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
+  select(-contains("FPKM")) %>%
+  tbl_df
+```
+
+Then the various element types, and the sampled genomic regions were identified
+```{r}
+elTypes <- gsub("(.+)_.+_IDs", "\\1", 
+                grep("IDs", colnames(tpmData), value = TRUE)) %>%
+  unique %>%
+  sort
+elRegs <- gsub(".+_(.+)_IDs", "\\1", 
+                grep("IDs", colnames(tpmData), value = TRUE)) %>%
+  unique %>%
+  sort
+```
+
+## Data Overview by Region
+
+A key feature of this dataset is that many genes contain multiple elements, with only a minority of genes containing a single TE.
+The 5 elements being investigated in this analysis are `r paste(elTypes[-5], collapse=", ")` & `r elTypes[5]`.
+
+The appearance of these elements is additionally annotated across 4 genomic regions in this dataset:  
+1. *cds*:- elements in the coding sequence itself  
+2. *prox*:- elements in the proximal promoter  
+3. *utr3*:- elements in the 3' UTR of a transcript  
+4. *utr5*:- elements in the 5' UTR of a transcript  
+
+```{r, cache=TRUE}
+longData <- tpmData %>%
+  melt(id.vars = 1, measure.vars = grep("IDs", colnames(tpmData), value = TRUE), 
+       variable.name = "element", value.name = "Present") %>%
+  mutate(Present = as.logical(Present),
+         Element = gsub("(.+)_.+_IDs", "\\1", grep("IDs", element, value = TRUE)),
+         Region = gsub(".+_(.+)_IDs", "\\1", grep("IDs", element, value = TRUE))) %>%
+  select(-element) %>%
+  tbl_df
+```
+
+The counts of these elements was then assessed across each region, with TEs being far less frequent in coding sequences, whilst 5' UTRs showed the most enrichment.
+```{r, fig.width=7, fig.height=5}
+longData %>%
+  filter(Present) %>%
+  ggplot(aes(x = Element, fill=Element)) +
+  geom_bar() +
+  facet_wrap(~Region, scales = "free_y",)
+```
+
+The overall appearances of any element within each region were also assessed, as seen in the following Venn Diagram
+```{r, results='hide'}
+regElements <- sapply(elRegs, 
+                      function(x){select(tpmData, contains(x)) %>% rowSums %>% as.logical},
+                      simplify = FALSE) %>%
+  as.data.frame %>%
+  mutate(ID = tpmData$ID) %>%
+  select(ID, one_of(elRegs)) %>%
+  tbl_df
+regVennCounts <- getVennCounts(regElements[,-1])
+regUniCount <- paste("No elements:", sum(rowSums(regElements[-1]) ==0))
+vennCols <- c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3", "orchid3")
+do.call(draw.quad.venn, c(regVennCounts, list(fill = vennCols[-5])))
+grid.text(regUniCount, 0.2, .1 )
+```
+
+Given the total number of genes under consideration (n = `r nrow(tpmData)`), the breakdown of how many genes contained an element in a given region is also given below:
+```{r, echo=FALSE, include=TRUE, results='asis'}
+sapply(c("sum", "mean"), function(x){summarise_each(regElements, funs_(x), one_of(elRegs))}, simplify = FALSE) %>% 
+  lapply(t) %>% 
+  as.data.frame %>% 
+  add_rownames(var="Region") %>% 
+  rename(Total = sum, Proportion = mean) %>% 
+  kable(digits = c(0, 0, 4))
+```
+
+
+```{r}
+cdsOnly <- filter(regElements, cds, !prox, !utr3, !utr5) %>%
+  select(ID)
+noElements <- filter(regElements, !cds, !prox, !utr3, !utr5) %>%
+  select(ID)
+cdsVsNoTE <- tpmData %>% filter(ID %in% c(cdsOnly$ID, noElements$ID)) %>%
+  select(ID, length, contains("TPM")) %>%
+  melt(id.vars = c("ID", "length"), variable.name = "Tissue", value.name = "TPM") %>%
+  mutate(TE = ID %in% cdsOnly$ID,
+         Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  tbl_df
+```
+
+## Initial Proposed Approach
+It was noted that there were reasonable numbers of genes containing a TE in a single genomic region.
+Due to the low number of samples where elements appear by themselves in the CDS (n = `r nrow(cdsOnly)`), this region was chosen for an exploratory analysis.
+Genes were studied based on whether they contained a TE in the CDS only , or whether they contained no TEs in any regions.
+A trend towards lower TPM values is not unexpected when compared to genes with no TEs, as longer genes are more likely to contain a TE, and longer genes are also more likely to have a lower TPM values.
+```{r}
+lm(TPM ~ 0 + log(length) + Tissue, data = cdsVsNoTE, subset=TPM > -Inf) %>% summary
+```
+
+
+Another factor which contributes to the difficulty in this data is that we are dealing with count data, which is discrete in nature instead of continuous, thus a normal linear regression model may not be appropriate.
+As an exploratory analysis, genes could be matched based on their length leaving the only point of difference as the presence or absence of a TE.
+This can be done by generating a number of approximately equal sized bins based on gene length, and sampling genes from these bins to approximately match the test set of genes which contain a TE in the CDS region.
+The median TPM values for the test set of genes (n = `r nrow(cdsOnly)`) can be compared to a distribution of median TPM values obtained by re-sampling the reference set of genes (n = `r nrow(noElements)`) in such a way that the length distribution is homologous to the test set.
+Additionally, instead of inspecting the mean TPM values, the median allows for incorporation of genes for which expression was undetectable (i.e. TPM = 0; log(TPM) = -Inf), which is itself important information.
+
+```{r, fig.cap='Bins based on gene length, using the length of genes across the entire dataset'}
+nBins <- 10
+lengthBins <- quantile(tpmData$length, probs = seq(0, 1, length.out = nBins + 1))
+ggplot(tpmData, aes(x = log(length))) +
+  geom_histogram(binwidth = 0.1, colour = "black", fill="grey50", alpha=0.8) +
+  theme_bw() +
+  labs(x = "log(Length)", y = "Count") +
+  geom_vline(x = log(lengthBins), col="blue", alpha=0.5, linetype=2)
+```
+
+As shown above, the lengths of all measured genes was broken in `r nBins` bins of approximately equal size.
+The numbers of genes found in each "length bin" were then noted and used to randomly sample genes with no TE, but with matching length distributions.
+
+```{r}
+cdsVsNoTE %<>% mutate(lengthBin = findInterval(length, lengthBins))
+cdsBins <- filter(cdsVsNoTE, TE) %>% 
+  distinct(ID) %>%
+  group_by(lengthBin) %>%
+  summarise(n())
+cdsMedTPM <- cdsVsNoTE %>%
+  filter(TE) %>%
+  group_by(Tissue) %>%
+  summarise(TPM = median(TPM))
+```
+
+
+When the median TPM values were taken for each Tissue, it was noted that more than half of the 221 genes which only contained a TE in the CDS were undetectable in Skeletal Muscle.
+
+```{r, results='asis'}
+cdsMedTPM %>% rename(`Median TPM` = TPM) %>% kable
+```
+
+These median TPM values were then able to be compared to the Tissue specific distributions of median TPM values for genes matched in length, but which contained no TE in any region.
+```{r, cache=TRUE}
+tpmData %<>% mutate(lengthBin = findInterval(length, lengthBins))
+getMedianTPM <- function(binDist, data, IDs){
+  data <- filter(data, ID %in% IDs)
+  TPM <- apply(binDist, 1, function(x){data %>%
+                                         filter(lengthBin == x[1]) %>%
+                                         sample_n(x[2])}) %>%
+    bind_rows %>%
+    select(ID, contains("TPM")) %>%
+    melt(id.vars = "ID", variable.name = "Tissue", value.name = "TPM") %>%
+    mutate(Tissue = gsub("_TPM", "", Tissue),
+           Tissue = capwords(Tissue)) %>%
+    group_by(Tissue) %>%
+    summarise(TPM = median(TPM))
+  TPM
+}
+set.seed(34990)
+noElMedVsCDS <- replicate(1000, getMedianTPM(cdsBins, tpmData, noElements$ID), FALSE) %>% 
+  bind_rows
+```
+
+After 1000 iterations of re-sampling genes with homologous length distributions, but with no TE, distributions of the median TPM values for these sampled were obtained.
+The tissue-specific, median TPM values for the 221 genes containing a TE in CDS regions only, was then compared to these distributions.
+
+```{r, echo =FALSE, fig.cap='Tissue specific distributions of median TPM values obtained when resampling genes of homologous length distributions but lacking any TEs. Vertical lines represent the median TPM value for genes with a TE only in the CDS.', warning=FALSE, message=FALSE}
+noElMedVsCDS %>% 
+  ggplot(aes(x = TPM, fill = Tissue)) + 
+  geom_density(alpha = 0.5) + 
+  guides(fill = FALSE) + 
+  facet_wrap(~Tissue) + 
+  geom_vline(aes(xintercept = TPM), data=cdsMedTPM)
+```
+
+
+```{r}
+tissues <- gsub("_TPM", "", 
+                grep("TPM", colnames(tpmData), value = TRUE)) %>% 
+  capwords
+```
+
+*p*-values based on these bootstrapped distributions were then obtained for each tissue, representing the probability of the median TPM for genes with with no TE in any region, being $\leq$ to that of genes with a TE in the CDS.
+
+```{r, echo=FALSE, results='asis'}
+lapply(tissues, 
+       function(x){data_frame(Tissue = x,
+                              P = 1 - mean(filter(noElMedVsCDS, Tissue ==x)$TPM > filter(cdsMedTPM, Tissue == x)$TPM))}) %>%
+  bind_rows %>%
+  kable
+```
+
+This can be simply repeated across TEs in all genomic regions, and across all types & combinations of TE.
+However, it should be noted that matching the type of TE across genes and specific regions may limit the reference sets for re-sampling considerably.
+The possibility of just matching the presence/absence of an element, regardless of it's genomic region may still be a valid approach.

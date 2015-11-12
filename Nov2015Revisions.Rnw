@@ -97,11 +97,11 @@ ggplot(aes(x = FPKM, fill = RE)) +
 <<TPMData, cache=TRUE>>=
 tpmFile <- file.path("data", "new_whole_gene_expression_dataset.txt")
 tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
-  select(ID, length, effective_length, contains("TPM"), one_of(oldRE)) %>%
+  select(ID, length, effective_length, contains("TPM"), contains("utr5")) %>%
   tbl_df
 allTE <- grep("utr5", colnames(tpmData), value=TRUE)
 tpmData$RE <- tpmData %>% 
-  dplyr::select(one_of(oldRE)) %>%
+  dplyr::select(contains("utr5")) %>%
   rowSums %>% 
   as.logical
 @
@@ -179,7 +179,7 @@ Thus a normalised TPM value was created to give a TPM/nt value on the log scale:
 \end{align*}
 This more effectively models the bias towards higher TPM counts for shorter genes, which can be considered to be more of a technical artefact for the data as opposed to true biology.
 
-<<plotLengthVsTPM, fig.height=8, fig.cap="Raw TPM counts plotted against gene length.">>=
+<<plotLengthVsTPM, fig.height=8, fig.cap="Raw TPM counts plotted against gene length.", cache=TRUE, dependson='normalisedTPM'>>=
 ggplot(normalisedTPM, aes(x=log(Length), y = TPM)) + 
   geom_point(size = 1.5, alpha = 0.3) + 
   theme_bw() +
@@ -188,7 +188,7 @@ ggplot(normalisedTPM, aes(x=log(Length), y = TPM)) +
   labs(x = "log (Gene Length)")
 @
 
-<<plotLengthVsnormalisedTPM, fig.height=8, fig.cap="normalised TPM counts plotted against gene length. Note the differing patterns for points associated with the longest gene in Skeletal Muscle. These represent transcripts of the gene TTN which is only expressed in muscle tissue.">>=
+<<plotLengthVsnormalisedTPM, fig.height=8, fig.cap="normalised TPM counts plotted against gene length. Note the differing patterns for points associated with the longest gene in Skeletal Muscle. These represent transcripts of the gene TTN which is only expressed in muscle tissue.", cache=TRUE, dependson='normalisedTPM'>>=
 ggplot(normalisedTPM, aes(x=log(Length), y = normalisedTPM)) + 
   geom_point(size = 1.5, alpha = 0.3) + 
   theme_bw() +
@@ -236,6 +236,52 @@ The adjusted $R^2$ value for the model was \Sexpr{format(summary(lmTPM)$adj.r.sq
 
 The above model was also fit (data not shown) incorporating an interaction term for the presence of an RE with the Tissue type, in order to assess whether any tissue specific impacts were detectable.
 None were detected (all raw $p$-values $> 0.01$).
+
+
+\section{Looking at the individual Elements}
+<<individualElements, cache=TRUE, dependson='TPMData'>>=
+indData <- tpmData %>%  
+  dplyr::select(ID, contains("TPM"), contains("IDs") , length) %>%
+  melt(c("ID", "length", allTE), 
+       grep("TPM", colnames(tpmData), value = TRUE),
+       "Tissue",
+       value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue)) %>%
+  mutate(Tissue = capwords(Tissue)) %>%
+  filter(TPM > -Inf) %>%
+  mutate(normalisedTPM = TPM - log(length)) %>%
+  tbl_df 
+@
+
+
+
+<<>>=
+indLm <- lm(normalisedTPM ~ 0 + length +
+              Tissue*(alu_utr5_IDs + L1_utr5_IDs + LTR_utr5_IDs ),
+   data = indData) %>%
+  step
+@
+
+
+<<tabInd, echo=FALSE, results='asis'>>=
+summary(indLm) %>% 
+  coef %>% 
+  as.data.frame %>% 
+  add_rownames("Coefficient") %>% 
+  mutate(Coefficient = gsub("Tissue", "Tissue = ", Coefficient),
+         Coefficient = gsub("_utr5_IDs", "", Coefficient),
+         Coefficient = gsub("length", "Length", Coefficient),
+         Padj = p.adjust(`Pr(>|t|)`, method = "bonferroni"),
+         ` ` =  aster(Padj)) %>%
+  select(-contains("Std")) %>%
+  rename(T = `t value`) %>%
+  xtable(caption = "Model Coefficients for the effect of the individual elements across all tissues. All $p$ values are adjusted using Bonferroni's method",
+         label = "tab:lmTPM", 
+         digits = rbind(c(0, 0, -3, 3, -2, -2, 0),
+                        matrix(c(0, 0, 3, 3, -2, -2, 0), ncol = 7, nrow = length(coef(indLm)) -1, byrow = TRUE))) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
 
 \clearpage
 \appendix

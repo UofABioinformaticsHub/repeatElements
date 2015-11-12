@@ -1,0 +1,197 @@
+\documentclass{article}
+%\usepackage{underscore}
+%\usepackage{booktabs}
+%\usepackage{float}
+%\usepackage{subfig}
+%\usepackage{titling}
+% \usepackage{a4wide}
+% \usepackage{placeins}
+% \usepackage{amsmath}
+
+
+\begin{document}
+
+\title{Analysis of Individual Elements\\
+        Across All 6 Sampled Tissues}
+\author{Steve Pederson\\
+        Adelaide University\\
+        Bioinformatics Hub\\
+        \,\\
+Lu Zeng\\
+Adelaide University\\
+Adelson Research Group}
+\maketitle
+
+\section{Data Setup}
+
+<<loadPackages, include=TRUE, echo=TRUE, warning=FALSE, message=FALSE>>=
+library(ggplot2)
+library(funsForLu)
+#library(readr)
+library(dplyr)
+library(reshape2)
+library(matrixStats)
+library(xtable)
+library(VennDiagram)
+source("extraFunctions.R")
+library(knitr)
+@
+
+<<knitrSetup, include=FALSE>>=
+knit_hooks$set(crop=hook_pdfcrop)
+opts_knit$set(self.contained=FALSE)
+opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, include=TRUE, echo=TRUE)
+pdf.options(useDingbats=TRUE)
+@
+
+<<TPMData, cache=TRUE>>=
+tpmFile <- file.path("data", "new_whole_gene_expression_dataset.txt")
+tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
+  select(-contains("FPKM")) %>%
+  tbl_df
+@
+
+<<setElements>>=
+elTypes <- gsub("(.+)_.+_IDs", "\\1", 
+                grep("IDs", colnames(tpmData), value = TRUE)) %>%
+  unique %>%
+  sort
+elRegs <- gsub(".+_(.+)_IDs", "\\1", 
+                grep("IDs", colnames(tpmData), value = TRUE)) %>%
+  unique %>%
+  sort
+@
+
+
+\section{Data Overview}
+A key feature of this dataset is that many genes contain multiple elements, with only a minority of genes containing a single TE.
+The 5 elements being investigated in this analysis are \Sexpr{paste(elTypes[-5], collapse=", ")} \& \Sexpr{elTypes[5]}
+
+The appearance of these elements in 4 genomic regions is annotated in this dataset:
+\begin{itemize}
+  \item \textit{utr5} elements in the 5' UTR of a transcript
+  \item \textit{utr3} elements in the 3' UTR of a transcript
+  \item \textit{prox} elements in the proximal promoter
+  \item \textit{cds} elements in the coding sequence itself
+\end{itemize}
+
+<<longData, cache=TRUE, dependson='TPMData'>>=
+longData <- tpmData %>%
+  melt(id.vars = 1, measure.vars = grep("IDs", colnames(tpmData), value = TRUE), 
+       variable.name = "element", value.name = "Present") %>%
+  mutate(Present = as.logical(Present),
+         Element = gsub("(.+)_.+_IDs", "\\1", 
+                        grep("IDs", element, value = TRUE)),
+         Region = gsub(".+_(.+)_IDs", "\\1", 
+                       grep("IDs", element, value = TRUE))) %>%
+  select(-element)
+@
+
+<<plotRegionCounts, fig.show='asis', fig.width=6, fig.height=4, fig.cap='Prevalence of each TE within the sets of genomic regions. Note the individual scales onthe y-axis.'>>=
+longData %>%
+  filter(Present) %>%
+  ggplot(aes(x = Element, fill=Element)) +
+  geom_bar() +
+  facet_wrap(~Region, scales = "free_y",)
+@
+
+Looking at the prevalence of the elements within each genomic region (Figure \ref{fig:plotRegionCounts}), coding regions clearly contained fewer TEs.
+The raw numbers for proximal promoters and 3' UTRs were broadly similar, whilst the 5' UTRs clearly had the highest number of TEs
+
+\subsection{Appearance of Single Vs Multiple Elements}
+
+<<totalCounts>>=
+totCounts <- sapply(elTypes, function(x){select(tpmData, contains(x)) %>%
+                                           rowSums %>%
+                                           as.logical},
+                    simplify = FALSE) %>%
+  as.data.frame %>%
+  tbl_df
+@
+
+<<plotTotals, fig.width=5, fig.height=4, fig.cap = 'Overall number of element types in a transcript', fig.show='asis'>>=
+data_frame(nElements = 0:length(elTypes),
+           Count = as.vector(table(rowSums(totCounts))),
+           Proportion = Count / sum(Count)) %>%
+  ggplot(aes(x = nElements, y = Proportion)) +
+  geom_bar(stat = "identity", alpha = 0.5) +
+  theme_bw() +
+  labs(x = "# Elements", y = "Proportion of Genes") +
+  ggtitle("Overall number of element types in a gene/transcript")
+@
+
+Firstly the overall number of element types in a gene/transcript were counted and approximately 50\% of these had 1 or fewer elements (Figure \ref{fig:plotTotals}), making a general analysis feasible at this level.
+The overall co-occurrence of the various TEs within the dataset is also shown in Figure \ref{fig:overallVenn}, without taking into account which part of the transcript the TE occurs in.
+
+<<overallVenn, fig.cap = 'Overall co-uccurrence of TEs', results='hide'>>=
+overallVennCounts <- getVennCounts(totCounts)
+cols <- c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3", "orchid3")
+do.call(draw.quintuple.venn, c(overallVennCounts, list(fill = cols)))
+@
+
+
+
+<<countElements>>=
+elCounts <- sapply(elRegs, function(x){select(tpmData, contains(x)) %>% rowSums}) 
+elTable <- apply(elCounts, 2, table)
+@
+
+<<plotCounts, fig.height=5, fig.width=5, fig.show='asis', fig.cap='Proportion of transcripts for each element type, plotted against the number of elements observed in a transcript'>>=
+elRegs %>%
+  lapply(function(x){data_frame(type = x, 
+                                nElements = names(elTable[[x]]),
+                                count = elTable[[x]],
+                                prop = elTable[[x]] / sum(elTable[[x]]))}) %>%
+  bind_rows %>%
+  ggplot(aes(x = nElements, y = prop, fill = type)) +
+  geom_bar(stat="identity") +
+  facet_wrap(~type, ncol=2) +
+  labs(x = "# Elements", y = "Proportion of Genes") +
+  guides(fill = FALSE)
+@
+
+As seen clearly in Figure \ref{fig:plotCounts} $>50$\% of genes contain no elements for each given type.
+For \textit{cds} elements, a simple linear model should suffice as there is minimal confounding for these types of element alone.
+However, for the other element types confouding between multiple element types may be a non-trivial issue.
+
+\subsection{Looking at each region of the transcript}
+
+Venn Diagrams were also plotted to show the co-occurrence of any motifs across each region
+
+<<vennCds, fig.show='asis', fig.height=6, fig.width=6, fig.cap = 'Element Co-occurrence in CDS regions', results='hide'>>=
+reg <- "_cds_IDs"
+vcCds <- tpmData %>% 
+  select(contains(reg)) %>%
+  getVennCounts(rmRexp = reg)
+do.call(draw.quintuple.venn, c(vcCds, list(fill = cols)))
+@
+
+<<vennProx, fig.show='asis', fig.height=6, fig.width=6, fig.cap = 'Element Co-occurrence in Proximal Promoters', message=FALSE, results='hide'>>=
+reg <- "_prox_IDs"
+vcProx <- tpmData %>% 
+  select(contains(reg)) %>%
+  getVennCounts(rmRexp = reg)
+do.call(draw.quintuple.venn, c(vcProx, list(fill = cols)))
+@
+
+<<vennUtr3, fig.show='asis', fig.height=6, fig.width=6, fig.cap = "Element Co-occurrence in 3\'UTRs", message=FALSE, results='hide'>>=
+reg <- "_utr3_IDs"
+vcUtr3 <- tpmData %>% 
+  select(contains(reg)) %>%
+  getVennCounts(rmRexp = reg)
+do.call(draw.quintuple.venn, c(vcUtr3, list(fill = cols)))
+@
+
+<<vennUtr5, fig.show='asis', fig.height=6, fig.width=6, fig.cap = "Element Co-occurrence in 5\'UTRs", message=FALSE, results='hide'>>=
+reg <- "_utr5_IDs"
+vcUtr5 <- tpmData %>% 
+  select(contains(reg)) %>%
+  getVennCounts(rmRexp = reg)
+do.call(draw.quintuple.venn, c(vcUtr5, list(fill = cols)))
+@
+
+As well os the co-occurence of TEs within each region
+
+The suggested methodology is to breakdown the elements by region, thus elements can be paired by matched content in a region of the transcript, as opposed to matching the entire length of the transcript.
+
+\end{document}

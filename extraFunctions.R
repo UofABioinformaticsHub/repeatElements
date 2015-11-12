@@ -15,6 +15,17 @@ sep = "", collapse = " " )
 sapply(strsplit(s, split = " "), cap, USE.NAMES = !is.null(names(s)))
 }
 
-commas <- function(x){
-  format(x, digits = 0, big.mark = ",")
+commas <- function(x, ...){
+  format(x, digits = 0, big.mark = ",", ...)
+}
+
+uc <- function(x, nr=6, nc=6, ...){
+  
+  if (all(!is.matrix(x), !is.data.frame(x))) {
+    head(x, nr, ...)
+  }
+  else{
+    x[1:min(nrow(x), nr), 1:min(ncol(x), nc)]
+  }
+    
 }
