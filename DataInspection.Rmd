@@ -2,15 +2,26 @@
 title: "Data Inspection"
 author: "Steve Pederson"
 date: "12/11/2015"
-output: html_document
+output: pdf_document
 ---
 
 # Inspection of Data Before Re-Analysis
 
+## Workspace Preparation
 Before re-analysing the data a thorough inspection of the data structure needed to be undertaken.
 This can shed light on the occurrence rates of TEs within each region, along with the co-occurrence rates within each region.
 
-Firstly, the data was loaded whilst ignoring the FPKM data, and the required *R* packages were loaded.
+Firstly, the required *R* packages were loaded.
+Amongst these is a custom package `funsForLu` hosted on GitHub & which contains some functions specific to this analysis.
+To install this package, run the following code.
+
+```{r funsForLu, eval=FALSE}
+install.packages(devtools)
+library(devtools)
+install_github("steveped/funsForLu")
+```
+
+Now this can be loaded along with the other required packages for the analysis
 
 ```{r loadPackages, message=FALSE}
 library(ggplot2)
@@ -25,6 +36,7 @@ library(scales)
 source("extraFunctions.R")
 ```
 
+Next the data was loaded whilst ignoring the FPKM data, and the various element types, along with the sampled genomic regions were identified
 
 ```{r loadData, cache=TRUE}
 tpmFile <- file.path("data", "new_whole_gene_expression_dataset.txt")
@@ -33,7 +45,7 @@ tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>%
   tbl_df
 ```
 
-Then the various element types, and the sampled genomic regions were identified
+
 ```{r elTypes}
 elTypes <- gsub("(.+)_.+_IDs", "\\1", 
                 grep("IDs", colnames(tpmData), value = TRUE)) %>%
@@ -71,7 +83,7 @@ longData <- tpmData %>%
 ```
 
 The counts of these elements was then assessed across each region, with TEs being far less frequent in coding sequences, whilst 5' UTRs showed the most enrichment.
-```{r plotRegionCounts, fig.width=7, fig.height=5}
+```{r plotRegionCounts, fig.width=7, fig.height=5, fig.cap='The number of appearances for each TE within each region.'}
 longData %>%
   filter(Present) %>%
   ggplot(aes(x = Element, fill=Element)) +
@@ -97,7 +109,7 @@ grid.text(regUniCount, 0.2, .1 )
 ```
 
 Given the total number of genes under consideration (n = `r nrow(tpmData)`), the breakdown of how many genes contained an element in a given region is also given below:
-```{r, echo=FALSE, include=TRUE, results='asis'}
+```{r regTable, echo=FALSE, include=TRUE, results='asis'}
 sapply(c("sum", "mean"), function(x){summarise_each(regElements, funs_(x), one_of(elRegs))}, simplify = FALSE) %>% 
   lapply(t) %>% 
   as.data.frame %>% 
@@ -106,10 +118,10 @@ sapply(c("sum", "mean"), function(x){summarise_each(regElements, funs_(x), one_o
   bind_rows(data_frame(Region ="none", 
                        Total = filter(regElements, !cds, !prox, !utr3, !utr5) %>% nrow(), 
                        Proportion = Total / nrow(tpmData))) %>%
-  kable(digits = c(0, 0, 4))
+  kable(digits = c(0, 0, 4), caption = "The counts & proportions of genes with TEs across each annotated region.")
 ```
 
-## Undetectable genes
+## Undetectable genes across all tissues
 
 ```{r addTECols}
 tpmData %<>% 
@@ -118,18 +130,25 @@ tpmData %<>%
 ```
 
 It was also noted that `r sum(tpmData$maxExp == -Inf)` genes were not detectable in any tissue, these were left in the dataset for any analysis involving gene length and probability of containing a TE.
-However, for any analysis involving expression levels, these were remoed as they contained ne relevant information for these analyses.
+However, for any analysis involving expression levels, these were removed as they contained no relevant information for these analyses.
 The overall number of these with TEs is given below.
 Expressed genes with at last one TE clearly make up the majority of this dataset.
 
-```{r detectVsTeE, echo=FALSE}
-tpmData %>% 
+```{r expCounts}
+expCounts <- tpmData %>% 
   mutate(Expressed = maxExp > -Inf) %>% 
-  count_(c("Expressed", "TE")) %>% 
+  count_(c("Expressed", "TE"))
+```
+
+```{r detectVsTeE, echo=FALSE}
+expCounts %>% 
   rename(`Contains TE`=TE,
          Total = n) %>% 
   kable
 ```
+
+A`fisher.test` was performed on the above table, and genes with a TE were found as more likely to be in the expressed set of genes (p = `r format(fisher.test(matrix(expCounts$n, nrow=2))$p.value, digits = 3) `).
+
 
 ## Gene Lengths for Genes With One or No TEs
 ```{r regLengths}
@@ -138,7 +157,12 @@ cdsOnly <- filter(regElements, cds, !prox, !utr3, !utr5) %>% select(ID)
 proxOnly <- filter(regElements, !cds, prox, !utr3, !utr5) %>% select(ID)
 utr3Only <- filter(regElements, !cds, !prox, utr3, !utr5) %>% select(ID)
 utr5Only <- filter(regElements, !cds, prox, !utr3, !utr5) %>% select(ID)
-regLengths <- list(cds=cdsOnly, prox=proxOnly, utr3=utr3Only, utr5=utr5Only, none = noElements) %>%
+multiple <- mutate(regElements, nReg = cds + prox + utr3 + utr5) %>% 
+  filter(nReg > 1) %>% 
+  select(ID)
+regLengths <- list(noTE = noElements, 
+                   cdsOnly=cdsOnly, proxOnly=proxOnly, utr3Only=utr3Only, utr5Only=utr5Only, 
+                   multipleRegions = multiple) %>%
   sapply(function(x){filter(tpmData, ID %in% x$ID)$length}, simplify = FALSE) %>%
   lapply(log)
 ```
@@ -149,13 +173,35 @@ When inspecting the relationship between gene length and the region a TE is foun
 lapply(names(regLengths), function(x){data_frame(Region = x,
                                                  Length = regLengths[[x]])}) %>%
   bind_rows %>%
-  mutate(Region = factor(Region, levels=names(regLengths)[c(5, 1:4)])) %>%
+  mutate(Region = factor(Region, levels=names(regLengths))) %>%
   ggplot(aes(x = Region, y = Length, fill = Region)) +
   geom_boxplot() +
   theme_bw() +
   guides(fill = FALSE) +
   labs(x = "Region with TE", y = "log(Gene Length)")
 ```
+
+A Wilcoxon Test was performed on each set of genes lengths associated with the region in which a TE is found.
+Most notably, only genes with TEs in the 3'UTR, or in multiple regions seemed associated with any increase in gene length.
+
+```{r lengthWilcox}
+lengthWilcox <- apply(combn(names(regLengths), 2),
+                      2, 
+                      function(x){wilcox.test(regLengths[[x[1]]], regLengths[[x[2]]])})
+names(lengthWilcox) <- apply(combn(names(regLengths),2), 2, paste0, collapse=" Vs ")
+```
+
+```{r lengthWilcoxTab, echo=FALSE}
+sapply(lengthWilcox, function(x){x$p.value}) %>% 
+  as.data.frame() %>% 
+  add_rownames("Comparison") %>% 
+  select(Comparison, p = 2) %>%
+  mutate(adjP = p.adjust(p, "bonferroni"),
+         sig  = aster(adjP)) %>%
+  kable(format.args = list(scientific=TRUE, digits=3),
+        col.names = c("Comparison", "p-value", "adjusted p-value", ""))
+```
+
 
 Further inspecting the relationship between the number of regions containing a TE and gene length, showed that on average there was minimal difference in gene lengths between genes with 1 or 0 TEs, with the expected increasing length only evident for genes with TEs in 2 or more regions.
 
@@ -169,7 +215,7 @@ bind_cols(tpmData, regElements[,-1]) %>%
   labs(x = "Number of Regions Containing a TE", y = "log(Gene Length)")
 ```
 
-```{r, echo=FALSE, results='asis'}
+```{r tabNRegVLength, echo=FALSE, results='asis'}
 bind_cols(tpmData, regElements[,-1]) %>% 
   mutate(nReg = as.factor(cds + prox + utr3 + utr5)) %>% 
   group_by(nReg) %>% 
@@ -181,38 +227,49 @@ bind_cols(tpmData, regElements[,-1]) %>%
 ```
 
 # Analytic Approach
-In order to combat the confounding of predictor variables a bootstrapping approach was decided on.
-Under this approach, genes can be binned based on an arbitrary variable such as length, or the presence/absence of any number of TEs.
-Considering the data to be a test set of genes and a reference set of genes, the distribution of genes within these bins can be used to sample genes from the reference set so as to resemble the test set of genes.
+In order to combat the confounding of predictor variables a *tilted* bootstrapping approach was decided on.
+Under this approach, genes can be binned based on a variable such as length, or the presence/absence of any combination of TEs.
+Considering the data to be a test set of genes and a reference set of genes, the distribution of genes within these bins can be used to sample genes from the reference set so as to resemble the test set of genes, i.e. using a tilted bootstrap where the probability of sampling a gene is based on the probability of appearance for "like" genes in the test set of genes.
+
+By way of example, for the test dataset we may be interested in the effects of an *alu* element. 
+The probability of observing an L1 in an exclusive pair with at *alu* element would then be used to sample genes with only an L1 element from the reference dataset.
+When repeated for all combinations of elements found with an *alu* element, the reference dataset will then resemble the test dataset, with the difference that all sampled genes in the test dataset would contain an *alu* element. 
+
 For each bootstrap iteration, the median TPM value for the sampled reference set of genes can be subtracted from the median TPM values for the sampled test set of genes.
 This allows for the continued incorporation of genes with log(TP) of -$\infty$ and the non-normal distribution that will result.
 This is also an appropriate choice of strategy for count data, as is at the heart of the TPM values. 
 
 After a suitable number of bootstrap iterations (e.g. 1000) a sampled density of the difference in median TPM values will be obtained for each tissue, and the probability of observing values > 0 can be simply estimated.  
 
-A function to perform the bootstrap procedure (`bootMedians`) has been written and included in the minimal package `funsForLu` which can be installed by using the commands:
-
-```{r, eval=FALSE}
-install.packages(devtools)
-library(devtools)
-install_github("steveped/funsForLu")
-library(funsForLu)
-```
+A function to perform the bootstrap procedure (`bootMedians`) has been written and included in the minimal package `funsForLu` with installation instructions given above.
 
 This process & some results are shown in the following sections which assess the effects of having one or more TEs in a specific region associated with a gene/transcript.
 
 ## The overall presence of a TE within a single region
-At this early & broad stage of the analysis, the test set of genes would be the set of genes shown in the above Venn Diagram, which only contain TEs within a single region, thus avoiding any potential confouding due to presence of TEs within multiple regions.
+At this early & broad stage of the analysis, the test set of genes would be the set of genes shown in the above Venn Diagram, which only contain TEs within a single region, thus avoiding any potential confounding due to presence of TEs within multiple regions.
 The sample size for this appears to be more than adequate given the above Venn Diagram too.
 The number &/or type of TEs in the region are not considered.
 These genes are compared to those genes with no TEs in any region as the reference set of genes.
 These lists were all created above. 
 
-```{r}
+```{r allSingle}
 allSingle <- bind_rows(cdsOnly, proxOnly, utr3Only, utr5Only)
 ```
 
-The main confouding factor for this analysis will be gene length, thus genes can be placed into a number of approximately equally-sized bins based the overall length distribution.
+The main confounding factor for this analysis would be gene length, as a Wilcoxon Test on the length of the genes within each group revealed this to be statistically significant (p = `r scientific(wilcox.test(regLengths$noTE, unlist(regLengths[2:6]))$p.value)`), with genes containing a single TE tending to be longer than genes without.
+
+```{r teVsNoTELength, echo=FALSE, fig.height=5, fig.width=7, fig.cap='Length densities for genes with no TE Vs those with a single TE.'}
+bind_rows(data_frame(TE ="No TE", length= regLengths$noTE), 
+          data_frame(TE = "Single TE", length= unlist(regLengths[2:6]))) %>% 
+  ggplot(aes(x= length, fill = TE)) + 
+  geom_density(alpha=0.5) +
+  theme_bw() +
+  guides(fill = guide_legend(override.aes = list(colour = NULL))) +
+  theme(legend.key = element_rect(colour = "black")) +
+  labs(x = "log(Gene Length)", y = "Density")
+```
+
+Thus genes can be placed into a number of approximately equally-sized bins based the overall length distribution.
 
 ```{r nBins}
 nBins <- 10
@@ -224,7 +281,7 @@ tpmData %<>%
 `r nBins` bins based on length were chosen, and these are shown in the following histogram.
 This information was added as an additional column to the object `tpmData`
 
-```{r, echo = FALSE, fig.cap='Bins based on gene length, using the length of genes across the entire dataset'}
+```{r lengthBins, echo = FALSE, fig.cap='Bins based on gene length, using the length of genes across the entire dataset'}
 ggplot(tpmData, aes(x = log(length))) +
   geom_histogram(binwidth = 0.1, colour = "black", fill="grey50", alpha=0.8) +
   theme_bw() +
@@ -232,7 +289,57 @@ ggplot(tpmData, aes(x = log(length))) +
   geom_vline(x = log(lengthBins), col="blue", alpha=0.5, linetype=2)
 ```
 
-Now all the correct data structure have been generated, the bootstraping procedure can be simply performed by the following line of code.
+The distributions from each dataset within each bin are first setup, leading to the sampling probabilities for the reference dataset.
+
+```{r tiltSetup}
+testData <- tpmData %>% 
+  filter(ID %in% bind_rows(cdsOnly, proxOnly, utr3Only, utr5Only)[[1]]) 
+testBins <- testData %>% 
+  group_by(lengthBin) %>% 
+  tally %>%
+  mutate(p = n / sum(n))
+refData <- tpmData %>% 
+  filter(ID %in% noElements[[1]]) 
+refBins <- refData %>% 
+  group_by(lengthBin) %>% 
+  tally %>%
+  mutate(p = n / sum(n),
+         effP = testBins$p / n) 
+w <- refBins$effP[match(refData$lengthBin, refBins$lengthBin)]
+```
+
+The probabilities of bin membership are shown for each dataset.
+```{r lengthBinProbs, echo=FALSE}
+bind_rows(data_frame(TE ="No TE", bin = factor(refBins$lengthBin), p = refBins$p),
+          data_frame(TE = "Single TE", bin = factor(testBins$lengthBin), p = testBins$p)) %>%
+  ggplot(aes(x = bin, y = p, fill = TE))+
+  geom_bar(stat="identity", position="dodge")
+```
+
+And after sampling,the length densities for 6 bootstrapped samples from each set of genes can be seen below, with the two length distributions clearly being much closer than before the sampling weights (i.e. the tilting) were applied.
+
+```{r testSamp, message=FALSE, warning=FALSE}
+set.seed(39990)
+testSamp <- list(test = replicate(6, sample_n(testData,1000, TRUE)$length),
+                 ref = replicate(6, sample_n(refData, 1000, TRUE, w)$length))
+colnames(testSamp$test) <- colnames(testSamp$ref) <- paste0("Replicate", 1:6)
+lapply(c("test", "ref"), function(x){data.frame(dataset = x, length = testSamp[[x]])}) %>%
+  bind_rows %>%
+  melt(id.vars = "dataset", variable.name = "Replicate", value.name= "length") %>%
+  mutate(Replicate = gsub("length.", "", Replicate)) %>%
+  ggplot(aes(x = log(length), fill = dataset))+
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Replicate) +
+    theme_bw() +
+  guides(fill = guide_legend(override.aes = list(colour = NULL))) +
+  theme(legend.key = element_rect(colour = "black")) +
+  labs(x = "log(Gene Length)", y = "Density")
+```
+
+Confirming the effectiveness of this process, a Wilcoxon Test on the length distributions from combined set of replicates (n=6000), yielded a p-value of `r format(wilcox.test(as.vector(testSamp$test), as.vector(testSamp$ref))$p.value, digits=4)`
+
+
+Now all the correct data structures have been generated & the method demonstrated to be effective, the bootstrapping procedure can be simply performed by the following line of code.
 Also note that genes which were undetectable in any tissue were removed for this analysis.
 ```{r allSingleBoot, cache=TRUE}
 set.seed(34990)
@@ -243,19 +350,18 @@ allSingleBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
 ```
 
 Surprisingly, the probabilities of seeing an increased median TPM were all very high.
-```{r, echo=FALSE}
+```{r allSingleTab, echo=FALSE}
 data.frame(P = allSingleBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
          Tissue = capwords(Tissue)) %>% 
-  rename(`P > 0` = P) %>% 
-  kable
+  kable(col.names = c("Tissue", "P (Diff in Median Values > 0)"))
 ```
 
 The densities, representing the difference in median TPM for the test genes (TE in a single region) vs median TPM for the reference genes (no TE), were all clearly to the right of zero.
 The implication from this is that the presence of a TE in a single region leads to an increase in gene expression.
 
-```{r, echo=FALSE, message=FALSE}
+```{r allSinglePlot, echo=FALSE, message=FALSE}
 allSingleBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -269,17 +375,10 @@ allSingleBoot$samples %>%
   labs(y = "Density")
 ```
 
-As this was surprising, the length distributions were quickly compared.
-```{r,echo=FALSE}
-tpmData %>% 
-  filter(ID %in% c(allSingle$ID, noElements$ID)) %>% 
-  ggplot(aes(x= log(length), fill=TE))+
-  geom_density(alpha=0.5)
-```
-
+This was surprising, as a longer gene length is generally associated with a lower TPM values, and genes containing a single TE were observed to be longer that those without.
 The raw data was also inspected and the median values for each tissue checked based on the presence of a TE in a single region.
 The results from the bootstrap method seemed to be consistent with the raw data.
-```{r}
+```{r allMeds}
 tpmData %>% 
   filter(ID %in% c(allSingle$ID, noElements$ID),
          maxExp > -Inf) %>% 
@@ -300,8 +399,8 @@ cdsOnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
                              nGenes = 150, nBoot = 1000, minGenes=150)
 ```
 
-These results were far more consistent with expectations:
-```{r, echo=FALSE}
+These results were far more consistent with expectations, with Brain & Kidney Tissue showing the strongest effects.
+```{r cdsOnlyTab, echo=FALSE}
 data.frame(P = cdsOnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -311,7 +410,7 @@ data.frame(P = cdsOnlyBoot$p) %>%
 ```
 
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r cdsOnlyPlot, echo=FALSE, message=FALSE, warning=FALSE}
 cdsOnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -341,7 +440,7 @@ proxOnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
 
 The results for this region were again surprising, in that all tissues showed a strong tendency to higher gene expression if a TE was only present in the proximal promoter.
 
-```{r, echo=FALSE}
+```{r proxOnlyTab, echo=FALSE}
 data.frame(P = proxOnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -350,7 +449,7 @@ data.frame(P = proxOnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE}
+```{r proxOnlyPlot, echo=FALSE, message=FALSE}
 proxOnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -378,7 +477,7 @@ utr3OnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
 The results for this region were again surprising, in that a clear repression of gene expression was observed in Testes & Brain, and to a lesser extent in Adipose Tissue & Skeletal Muscle.
 In Kidney and Liver however, no clear pattern was observed.
 
-```{r, echo=FALSE}
+```{r utr3OnlyTab, echo=FALSE}
 data.frame(P = utr3OnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -387,7 +486,7 @@ data.frame(P = utr3OnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE}
+```{r utr3OnlyPlot, echo=FALSE, message=FALSE}
 utr3OnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -414,7 +513,7 @@ utr5OnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
 
 Again all tissues showed a clear increase in expression with the presence of a TE in the 5'UTR only.
 
-```{r, echo=FALSE}
+```{r utr5OnlyTab, echo=FALSE}
 data.frame(P = utr5OnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -423,7 +522,7 @@ data.frame(P = utr5OnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE}
+```{r utr5OnlyPlot, echo=FALSE, message=FALSE}
 utr5OnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -437,15 +536,20 @@ utr5OnlyBoot$samples %>%
   labs(y = "Density")
 ```
 
+Clearly the location of the TE has an effect on gene expression, but this may be strongly connected to the types of elements most commonly seen by themselves in each region (perhaps these were primarily *alu* elements).
+It should also be noted that only `r length(regLengths$cdsOnly)` genes were sampled for the CDS region, so this may be a highly unrepresentative sample.
+
+The tissue specific effects connected to the location of a single TE were also notable.
+
 ## TEs in multiple regions
-```{r}
+```{r multRegs}
 multRegs <- regElements %>%
   mutate(nReg = cds + prox + utr3 + utr5) %>%
   filter(nReg > 1) %>%
   select(ID)
 ```
 
-As a result of the surprising observations above, the effects of TEs inmultiple regions were investigated.
+As a result of the surprising observations above, the effects of TEs in multiple regions were also investigated.
 Again, this was a large set of genes (n = `r nrow(multRegs)`).
 
 ```{r multRegsBoot, cache=TRUE}
@@ -457,7 +561,7 @@ multRegsBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
 
 No specific patterns were observable, with the exception of Brain, which showed a tendency towards reduced expression in the presence of elements in multiple genomic regions.
 
-```{r, echo=FALSE}
+```{r multRegsTab, echo=FALSE}
 data.frame(P = multRegsBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -466,7 +570,7 @@ data.frame(P = multRegsBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE}
+```{r multRegsPlot, echo=FALSE, message=FALSE}
 multRegsBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -498,10 +602,10 @@ do.call(draw.quintuple.venn, c(typeVennCounts, list(fill = vennCols)))
 grid.text(typeUniCount, 0.15, .8 )
 ```
 
-As seen in the Venn Digram above, the numbers of genes with L1 & LTR elements in isolation may be too small to make any strong claims.
+As seen in the Venn Diagram above, the numbers of genes with L1 & LTR elements in isolation may be too small to make any strong claims.
 However, the effects of each element acting in isolation was first investigated.
 
-```{r}
+```{r, sepElements}
 aluOnly <- filter(typeElements, alu, !L1, !L2, !LTR, !mir) %>%
   select(ID)
 l1Only <- filter(typeElements, !alu, L1, !L2, !LTR, !mir) %>%
@@ -511,6 +615,9 @@ l2Only <- filter(typeElements, !alu, !L1, L2, !LTR, !mir) %>%
 ltrOnly <- filter(typeElements, !alu, !L1, !L2, LTR, !mir) %>%
   select(ID)
 mirOnly <- filter(typeElements, !alu, !L1, !L2, !LTR, mir) %>%
+  select(ID)
+multipleElements <- mutate(typeElements, nEl = alu + L1 + L2 + LTR + mir) %>%
+  filter(nEl > 1) %>%
   select(ID)
 ```
 
@@ -527,8 +634,8 @@ aluOnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
                              nGenes = 1000, nBoot = 1000)
 ```
 
-Genes appear to demonstrate a higher level of expression across all tissues in this comparison, with the possible exception of Brain.
-```{r, echo=FALSE}
+Genes appear to demonstrate a higher level of expression across all tissues in this comparison, with the exception of Brain.
+```{r aluOnlyTab, echo=FALSE}
 data.frame(P = aluOnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -537,7 +644,7 @@ data.frame(P = aluOnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r aluOnlyPlot, echo=FALSE, message=FALSE, warning=FALSE}
 aluOnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -564,8 +671,8 @@ l1OnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
                              nGenes = 500, nBoot = 1000)
 ```
 
-Contrary to *alu* elements, L1 elements generally appear to exert a repressive influence on gene expression when acting in isolation.
-```{r, echo=FALSE}
+Contrary to *alu* elements, L1 elements generally appear to exert a repressive influence on gene expression when acting in isolation, with the most convincing results in Adipose Tissue, Brain & Testes.
+```{r l1OnlyTab, echo=FALSE}
 data.frame(P = l1OnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -574,7 +681,7 @@ data.frame(P = l1OnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r l1OnlyPlot, echo=FALSE, message=FALSE, warning=FALSE}
 l1OnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -601,8 +708,8 @@ l2OnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
                              nGenes = 1000, nBoot = 1000)
 ```
 
-Contrary to L1 elements, L2 elements appear to increase gene expression when acting in isolation.
-```{r, echo=FALSE}
+Contrary to L1 elements, L2 elements appear to increase gene expression when acting in isolation, although this appeared to be more of a bias than a statistically robust finding.
+```{r l2OnlyTab, echo=FALSE}
 data.frame(P = l2OnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -611,7 +718,7 @@ data.frame(P = l2OnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r l2OnlyPlot, echo=FALSE, message=FALSE, warning=FALSE}
 l2OnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -640,7 +747,7 @@ ltrOnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
 ```
 
 Contrary to *alu* & L2 elements, LTR elements appear to exert a repressive influence on gene expression when acting in isolation.
-```{r, echo=FALSE}
+```{r ltrOnlyTab, echo=FALSE}
 data.frame(P = ltrOnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -649,7 +756,7 @@ data.frame(P = ltrOnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r ltrOnlyPlot, echo=FALSE, message=FALSE, warning=FALSE}
 ltrOnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -676,8 +783,8 @@ mirOnlyBoot <- bootMedians(filter(tpmData, maxExp > -Inf),
                              nGenes = 500, nBoot = 1000)
 ```
 
-Contrary to the other element, *mir* elements appear to have no effect on gene expression.
-```{r, echo=FALSE}
+Contrary to the other element, *mir* elements in isolation appear to have no effect on gene expression.
+```{r mirOnlyTab, echo=FALSE}
 data.frame(P = mirOnlyBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -686,7 +793,7 @@ data.frame(P = mirOnlyBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r mirOnlyPlot, echo=FALSE, message=FALSE, warning=FALSE}
 mirOnlyBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -700,84 +807,30 @@ mirOnlyBoot$samples %>%
   labs(y = "Density")
 ```
 
-## Gene lengths and Element Types
-This lead to the possibility of removing mir elements from the list of those investigated, however before making this decision, these elements should be investigated thoroughly.
-Firstly, the correlation between each element type in isolation and gene length was checked.
+## Multiple Elements
 
-```{r}
-elLengths <- list(alu=aluOnly, L1=l1Only, L2=l2Only, LTR=ltrOnly, mir=mirOnly, none = noElements) %>%
-  sapply(function(x){filter(tpmData, ID %in% x$ID)$length}, simplify = FALSE) %>%
-  lapply(log)
-lapply(names(elLengths), function(x){data_frame(Element = x,
-                                                 Length = elLengths[[x]])}) %>%
-  bind_rows %>%
-  mutate(Element = as.factor(Element)) %>%
-  ggplot(aes(x = Element, y = Length, fill = Element)) +
-  geom_boxplot() +
-  theme_bw() +
-  guides(fill = FALSE) +
-  labs(x = "Element Type", y = "log(Gene Length)")
+The total number genes with multiple elements `r nrow(multipleElements)`, and these were also tested using length as the binning parameter.
+
+```{r multipleBoot, cache=TRUE}
+multipleBoot <- bootMedians(filter(tpmData, maxExp > -Inf), 
+                           multipleElements$ID, noElements$ID, 
+                             idCol = "ID$", binCol = "Bin$", valCols = "TPM", 
+                             nGenes = 1000, nBoot = 1000)
 ```
 
-Clearly the length distributions of genes with one element alone are very similar to when no element is present.
-A `Wilcoxon Test` assessing the length of genes with a *mir* element in isolation aginst the length of genes with no TE showed no significant difference (*p*=`r format(wilcox.test(elLengths[["none"]], elLengths[["mir"]])$p.value, digits=3)`).  
+The results from this strategy seemed divers, but no compelling conclusions could be drawn.
 
-The correlation between the number of TEs and gene length was then investigated, with a clear correlation emerging between gene length and the number of TEs detected within a gene, which makes much intuitive sense.
-
-```{r}
-tpmData %>% 
-  mutate(nEl = as.factor(mutate(typeElements, nEl = alu + L1 + L2 + LTR + mir)$nEl)) %>%
-  ggplot(aes(x = nEl, y = log(length), fill = nEl)) +
-  geom_boxplot() +
-  theme_bw() +
-  guides(fill = FALSE) +
-  labs(x = "Number of elements in a gene", y= "log(Gene Length)")
-```
-
-# Comparison of genes with mir elements against those without
-As the presence of a mir element in isolation appears to have no correlation with gene length, in order to investigate the effects of the presence of a mir element, an alternative binning strategy was used.
-In this case, bins were determine based on the presence of all other elements in combination.
-```{r}
-mirData <- tpmData %>% 
-  mutate(mir = typeElements$mir, other ="none") 
-mirData$other[mirData$ID %in% filter(typeElements, alu, !L1, !L2, !LTR)$ID] <- "alu"
-mirData$other[mirData$ID %in% filter(typeElements, !alu, L1, !L2, !LTR)$ID] <- "L1"
-mirData$other[mirData$ID %in% filter(typeElements, !alu, !L1, L2, !LTR)$ID] <- "L2"
-mirData$other[mirData$ID %in% filter(typeElements, !alu, !L1, !L2, LTR)$ID] <- "LTR"
-mirData$other[mirData$ID %in% filter(typeElements, alu, L1, !L2, !LTR)$ID] <- "aluL1"
-mirData$other[mirData$ID %in% filter(typeElements, alu, !L1, L2, !LTR)$ID] <- "aluL2"
-mirData$other[mirData$ID %in% filter(typeElements, alu, !L1, !L2, LTR)$ID] <- "aluLTR"
-mirData$other[mirData$ID %in% filter(typeElements, !alu, L1, L2, !LTR)$ID] <- "L1L2"
-mirData$other[mirData$ID %in% filter(typeElements, !alu, L1, !L2, LTR)$ID] <- "L1LTR"
-mirData$other[mirData$ID %in% filter(typeElements, !alu, !L1, L2, LTR)$ID] <- "L2LTR"
-mirData$other[mirData$ID %in% filter(typeElements, alu, L1, L2, !LTR)$ID] <- "aluL1L2"
-mirData$other[mirData$ID %in% filter(typeElements, alu, L1, !L2, LTR)$ID] <- "aluL1LTR"
-mirData$other[mirData$ID %in% filter(typeElements, alu, !L1, L2, LTR)$ID] <- "aluL2LTR"
-mirData$other[mirData$ID %in% filter(typeElements, alu, L1, L2, LTR)$ID] <- "aluL1L2LTR"
-```
-
-Thus the test set of genes would be the set of genes with a mir element, with sampling probabilities derived from the combinations of elements co-occurring with mir elements.
-These sampling probabilities can then be used to sample the reference set of genes, which are those without a mir element.
-```{r}
-mirBoot <- bootMedians(mirData, 
-                       filter(mirData, mir)$ID, filter(mirData, !mir)$ID, 
-                       binCol = "other$", valCols = "TPM", nGenes = 1000, nBoot = 1000)
-```
-
-Only in the Testes did any effects of mir elements appear plausible.
-As such, the presence of mir elements could possibly be disregarded for the remainder of the analysis
-
-```{r, echo=FALSE}
-data.frame(P = mirBoot$p) %>% 
+```{r multipleTab, echo=FALSE}
+data.frame(P = multipleBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
          Tissue = capwords(Tissue)) %>% 
   rename(`P > 0` = P) %>% 
-  kable(digits = 3)
+  kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
-mirBoot$samples %>% 
+```{r multiplePlot, echo=FALSE, message=FALSE, warning=FALSE}
+multipleBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -790,9 +843,110 @@ mirBoot$samples %>%
   labs(y = "Density")
 ```
 
+
+## Gene lengths and Element Types
+The connection between the presence of each type of element and gene length were also explored.
+
+```{r elLengths}
+elLengths <- list(none = noElements, 
+                  aluOnly=aluOnly, L1Only=l1Only, L2Only=l2Only, 
+                  LTROnly=ltrOnly, mirOnly=mirOnly, multiple = multipleElements) %>%
+  sapply(function(x){filter(tpmData, ID %in% x$ID)$length}, simplify = FALSE) %>%
+  lapply(log)
+lapply(names(elLengths), function(x){data_frame(Element = x,
+                                                 Length = elLengths[[x]])}) %>%
+  bind_rows %>%
+  mutate(Element = factor(Element, levels = names(elLengths))) %>%
+  ggplot(aes(x = Element, y = Length, fill = Element)) +
+  geom_boxplot() +
+  theme_bw() +
+  guides(fill = FALSE) +
+  labs(x = "Element Type", y = "log(Gene Length)")
+```
+
+```{r lengthWilcoxEl}
+lengthWilcoxEl <- apply(combn(names(elLengths), 2),
+                      2, 
+                      function(x){wilcox.test(elLengths[[x[1]]], elLengths[[x[2]]])})
+names(lengthWilcoxEl) <- apply(combn(names(elLengths),2), 2, paste0, collapse=" Vs ")
+```
+
+```{r lengthWilcoxElTab}
+sapply(lengthWilcoxEl, function(x){x$p.value}) %>% 
+  as.data.frame() %>% 
+  add_rownames("Comparison") %>% 
+  select(Comparison, p = 2) %>%
+  mutate(adjP = p.adjust(p, "bonferroni"),
+         sig  = aster(adjP)) %>%
+  kable(format.args = list(scientific=TRUE, digits=3),
+        col.names = c("Comparison", "p-value", "adjusted p-value", ""))
+```
+
+
+Clearly the length distributions of genes with one *alu*, L2 or mir element alone are very similar to when no element is present, whilst other combinations of elements showed some variation in their association with gene length.
+
+The number of elements found in a gene was also explored visually.
+```{r nbrElVsLenPlot}
+tpmData %>% 
+  mutate(nEl = as.factor(mutate(typeElements, nEl = alu + L1 + L2 + LTR + mir)$nEl)) %>%
+  ggplot(aes(x = nEl, y = log(length), fill = nEl)) +
+  geom_boxplot() +
+  theme_bw() +
+  guides(fill = FALSE) +
+  labs(x = "Number of elements in a gene", y= "log(Gene Length)")
+```
+
+# Comparison of genes with mir elements against those without
+As the presence of a mir element in isolation appears to have no correlation with gene length, in order to investigate the effects of the presence of a mir element, an alternative binning strategy was used.
+In this case, bins were determine based on the presence of all other elements in combination.
+```{r mirData}
+mirData <- tpmData %>% 
+  mutate(mir = typeElements$mir, 
+         other = binsFromCols(select(typeElements, -one_of("ID", "mir")))) %>%
+  filter(maxExp > -Inf)
+```
+
+Thus the test set of genes would be the set of genes with a mir element, with sampling probabilities derived from the combinations of elements co-occurring with mir elements.
+These sampling probabilities can then be used to sample the reference set of genes, which are those without a mir element.
+As this dataset stands, however, mir elements co-occurring with all four elements represents nearly 30% of the annotated mir elements.
+In the set of genes with no mir element, genes with the other four elements represent less than 2% of the total genes.
+The tilting strategy outlined above would ensure that these elements are sampled multiple times in most iterations and the results may be biased by this phenomenon.
+Removing this confounding group may be the best strategy to deal with this problem.
+```{r mirBoot}
+mirBoot <- bootMedians(filter(mirData, other!="alu_L1_L2_LTR"),
+                       filter(mirData, mir)$ID, filter(mirData, !mir)$ID, 
+                       binCol = "other$", valCols = "TPM", nGenes = 1000, nBoot = 1000)
+```
+
+Only in the Testes did any effects of mir elements appear plausible.
+As such, the presence of mir elements could possibly be disregarded for the remainder of the analysis
+
+```{r mirBootTab, echo=FALSE}
+data.frame(P = mirBoot$p) %>% 
+  add_rownames("Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue), 
+         Tissue = capwords(Tissue)) %>% 
+  rename(`P > 0` = P) %>% 
+  kable(digits = 3)
+```
+
+```{r mirBootPlot, echo=FALSE, message=FALSE, warning=FALSE}
+mirBoot$samples %>% 
+  melt(variable.name="Tissue", value.name = "TPM") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  geom_vline(x = 0) +
+  labs(x = expression(paste(Delta, "TPM")),y = "Density")
+```
+
 # Re-analysis Treating mir Elements as a non-TE
-The venn diagram for co-occurrence of elements was then redrawn with mir elements being disregarded.
-```{r}
+The Venn diagram for co-occurrence of elements was then redrawn with mir elements being disregarded.
+```{r noMirVenn, results='hide'}
 noMirVennCounts <- getVennCounts(select(typeElements, -ID, -mir))
 noMirUniCount <- paste("No elements:", sum(rowSums(select(typeElements, -ID, -mir)) ==0))
 grid.newpage()
@@ -803,18 +957,22 @@ grid.text(noMirUniCount, 0.2, .1 )
 ## alu Elements
 
 ```{r aluNoMirBoot, cache=TRUE}
+aluData <- tpmData %>% 
+  mutate(alu = typeElements$alu, 
+         other = binsFromCols(select(typeElements, -one_of("ID", "alu", "mir")))) %>%
+  filter(maxExp > -Inf)
 testIDs <- filter(typeElements, alu, !L1, !L2, !LTR)$ID
 refIDs <- filter(typeElements, !alu, !L1, !L2, !LTR)$ID
-aluNoMirBoot <- bootMedians(filter(tpmData, maxExp > -Inf), 
+aluNoMirBoot <- bootMedians(aluData, 
                             testIDs, refIDs,
                             idCol = "ID$", binCol = "Bin$", valCols = "TPM", 
                             nGenes = 1000, nBoot = 1000)
 ```
 
-Once again genes with *alu* elements in isolation were compared against the genes with no elements, disregarding the presenceof anymir elements.
+Once again genes with *alu* elements in isolation were compared against the genes with no elements, but disregarding the presence of any mir elements, and using the length as the tilting variable.
 This now represented `r length(testIDs)` genes, which was `r percent(length(testIDs) / sum(typeElements$alu))` of all *alu* elements.
-Again, most genes appear to demonstrate a higher level of expression acrossall tissues, with the possible exception of the brain.
-```{r, echo=FALSE}
+Again, most genes appear to demonstrate a higher level of expression across all tissues, with the possible exception of the brain.
+```{r aluNoMirTab, echo=FALSE}
 data.frame(P = aluNoMirBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -823,7 +981,7 @@ data.frame(P = aluNoMirBoot$p) %>%
   kable(digits = 4)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r aluNoMirPlot, echo=FALSE, message=FALSE, warning=FALSE}
 aluNoMirBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -838,28 +996,26 @@ aluNoMirBoot$samples %>%
 ```
 
 In order to include all *alu* elements, the strategy of binning based on the combinations of co-occurring units was applied to the data, instead of binning based on length. 
+It was also noted that the probabilities of an *alu* occurring alongside 3 or more elements, were vastly difference to the groups of three elements appearing with no *alu* elements, so these combinations were removed from the dataset. 
 
-```{r}
+```{r aluData}
 aluData <- tpmData %>% 
-  mutate(alu = typeElements$alu, other ="none") 
-aluData$other[aluData$ID %in% filter(typeElements, L1, !L2, !LTR)$ID] <- "L1"
-aluData$other[aluData$ID %in% filter(typeElements, !L1, L2, !LTR)$ID] <- "L2"
-aluData$other[aluData$ID %in% filter(typeElements, !L1, !L2, LTR)$ID] <- "LTR"
-aluData$other[aluData$ID %in% filter(typeElements, L1, L2, !LTR)$ID] <- "L1L2"
-aluData$other[aluData$ID %in% filter(typeElements, L1, !L2, LTR)$ID] <- "L1LTR"
-aluData$other[aluData$ID %in% filter(typeElements, !L1, L2, LTR)$ID] <- "L2LTR"
-aluData$other[aluData$ID %in% filter(typeElements, L1, L2, LTR)$ID] <- "L1L2LTR"
+  select(-contains("IDs")) %>%
+  mutate(alu = typeElements$alu, 
+         other = binsFromCols(select(typeElements, -one_of("ID", "alu")))) %>%
+  filter(maxExp > -Inf,
+         !grepl(".+_.+_.+_.+",other))
 ```
 
 
-```{r}
+```{r aluBoot}
 aluBoot <- bootMedians(aluData, 
                        filter(aluData, alu)$ID, filter(aluData, !alu)$ID, 
                        binCol = "other$", valCols = "TPM", nGenes = 1000, nBoot = 1000)
 ```
 
 
-```{r, echo=FALSE}
+```{r aluBootTab, echo=FALSE}
 data.frame(P = aluBoot$p) %>% 
   add_rownames("Tissue") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue), 
@@ -868,7 +1024,7 @@ data.frame(P = aluBoot$p) %>%
   kable(digits = 3)
 ```
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+```{r aluBootPlot, echo=FALSE, message=FALSE, warning=FALSE}
 aluBoot$samples %>% 
   melt(variable.name="Tissue", value.name = "TPM") %>% 
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -882,36 +1038,4 @@ aluBoot$samples %>%
   labs(y = "Density")
 ```
 
-
-
-```{r, eval = FALSE, echo=FALSE}
-# getElement <- function(x, data){
-#   els <-filter(data, ID ==x) %>%
-#     select(contains("IDs")) %>%
-#     colSums()
-#   if (sum(els) == 0 ) return(data.frame(ID = c(), X1 = c(), X2 = c()))
-#   els <- gsub("_IDs", "", names(which(els != 0)))
-#   data.frame(ID = x, stringr::str_split_fixed(els, "_",2))
-# }
-# fullCatalog <- tpmData$ID %>% 
-#   lapply(getElement, data=tpmData) %>%
-#   bind_rows()  %>% 
-#   rename(TE = X1, Region = X2)
-```
-
-```{r, eval = FALSE, echo=FALSE}
-# catalogTotals <- fullCatalog %>%
-#   group_by(TE, Region) %>%
-#   summarise(Total = n()) %>%
-#   ungroup %>%
-#   mutate(Proportion = Total / sum(Total))
-# catalogTotals %>%
-#   ggplot(aes(x = Region, y = TE, fill = Proportion)) +
-#   geom_raster() +
-#   scale_fill_gradient(low = "white", high = "red")
-```
-
-
-
-
-
+I think Lu might be able to take it from here...
