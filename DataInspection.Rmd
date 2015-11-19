@@ -21,11 +21,16 @@ library(devtools)
 install_github("steveped/funsForLu")
 ```
 
-Now this can be loaded along with the other required packages for the analysis
+Some additional shortcuts are also included from the custom package `spShortcuts` which can be installed using the following.
+
+```{r spShortcuts, eval=FALSE}
+install_github("steveped/spShortcuts")
+```
+
+Now these can be loaded along with the other required packages for the analysis.
 
 ```{r loadPackages, message=FALSE}
 library(ggplot2)
-library(funsForLu)
 library(dplyr)
 library(magrittr)
 library(reshape2)
@@ -33,7 +38,8 @@ library(matrixStats)
 library(VennDiagram)
 library(knitr)
 library(scales)
-source("extraFunctions.R")
+library(funsForLu)
+library(spShortcuts)
 ```
 
 Next the data was loaded whilst ignoring the FPKM data, and the various element types, along with the sampled genomic regions were identified
@@ -956,6 +962,28 @@ grid.text(noMirUniCount, 0.2, .1 )
 
 ## alu Elements
 
+The elements co-occurring with an *alu* element were also investigated.
+```{r aluCoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring with an alu element"}
+aluVennCounts <- typeElements %>% 
+  filter(alu) %>%
+  select(-ID, -alu) %>% 
+  getVennCounts
+grid.newpage()
+do.call(draw.quad.venn, c(aluVennCounts, list(fill = vennCols[-5])))
+```
+
+The elements co-occurring where no *alu* elements is present were also investigated.
+```{r noaluCoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring where no alu element is present"}
+aluVennCounts <- typeElements %>% 
+  filter(!alu) %>%
+  select(-ID, -alu) %>% 
+  getVennCounts
+grid.newpage()
+do.call(draw.quad.venn, c(aluVennCounts, list(fill = vennCols[-5])))
+```
+
+
+
 ```{r aluNoMirBoot, cache=TRUE}
 aluData <- tpmData %>% 
   mutate(alu = typeElements$alu, 
@@ -1008,7 +1036,7 @@ aluData <- tpmData %>%
 ```
 
 
-```{r aluBoot}
+```{r aluBoot, cache=TRUE}
 aluBoot <- bootMedians(aluData, 
                        filter(aluData, alu)$ID, filter(aluData, !alu)$ID, 
                        binCol = "other$", valCols = "TPM", nGenes = 1000, nBoot = 1000)
@@ -1038,4 +1066,70 @@ aluBoot$samples %>%
   labs(y = "Density")
 ```
 
-I think Lu might be able to take it from here...
+## L2 Elements
+
+
+```{r l2Data}
+l2Data <- tpmData %>% 
+  select(-contains("IDs")) %>%
+  mutate(l2 = typeElements$L2, 
+         other = binsFromCols(select(typeElements, -one_of("ID", "L2")))) %>%
+  filter(maxExp > -Inf,
+         !grepl(".+_.+_.+_.+",other))
+```
+
+```{r l2CoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring where no alu element is present"}
+l2VennCounts <- typeElements %>% 
+  filter(L2) %>%
+  select(-ID, -L2) %>% 
+  getVennCounts
+grid.newpage()
+do.call(draw.quad.venn, c(l2VennCounts, list(fill = vennCols[-5])))
+```
+
+
+
+```{r nol2CoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring where no alu element is present"}
+l2VennCounts <- typeElements %>% 
+  filter(!L2) %>%
+  select(-ID, -L2) %>% 
+  getVennCounts
+grid.newpage()
+do.call(draw.quad.venn, c(l2VennCounts, list(fill = vennCols[-5])))
+```
+
+
+```{r l2Boot, cache=TRUE}
+l2Boot <- bootMedians(l2Data, 
+                       filter(l2Data, l2)$ID, filter(l2Data, !l2)$ID, 
+                       binCol = "other$", valCols = "TPM", nGenes = 1000, nBoot = 1000)
+```
+
+
+```{r l2BootTab, echo=FALSE}
+data.frame(P = l2Boot$p) %>% 
+  add_rownames("Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue), 
+         Tissue = capwords(Tissue)) %>% 
+  rename(`P > 0` = P) %>% 
+  kable(digits = 3)
+```
+
+```{r l2BootPlot, echo=FALSE, message=FALSE, warning=FALSE}
+l2Boot$samples %>% 
+  melt(variable.name="Tissue", value.name = "TPM") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  geom_vline(x = 0) +
+  labs(y = "Density")
+```
+
+## Things for Steve to do
+- Make a heatmap of elements by region, using proportions
+- Fit a Logistic Regresssion model for prob of elements within a region
+- Also explore this idea modelling the rate of appearance within a region...?
