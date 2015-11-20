@@ -966,7 +966,7 @@ The elements co-occurring with an *alu* element were also investigated.
 ```{r aluCoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring with an alu element"}
 aluVennCounts <- typeElements %>% 
   filter(alu) %>%
-  select(-ID, -alu) %>% 
+  dplyr::select(-ID, -alu) %>% 
   getVennCounts
 grid.newpage()
 do.call(draw.quad.venn, c(aluVennCounts, list(fill = vennCols[-5])))
@@ -976,7 +976,7 @@ The elements co-occurring where no *alu* elements is present were also investiga
 ```{r noaluCoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring where no alu element is present"}
 aluVennCounts <- typeElements %>% 
   filter(!alu) %>%
-  select(-ID, -alu) %>% 
+  dplyr::select(-ID, -alu) %>% 
   getVennCounts
 grid.newpage()
 do.call(draw.quad.venn, c(aluVennCounts, list(fill = vennCols[-5])))
@@ -1129,7 +1129,269 @@ l2Boot$samples %>%
   labs(y = "Density")
 ```
 
+## L1 Elements
+
+
+```{r l1Data}
+l1Data <- tpmData %>% 
+  dplyr::select(-contains("IDs")) %>%
+  mutate(l1 = typeElements$L1, 
+         other = binsFromCols(dplyr::select(typeElements, -one_of("ID", "L1")))) %>%
+  filter(maxExp > -Inf,
+         !grepl(".+_.+_.+_.+",other))
+```
+
+```{r l1CoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring where no L1 element is present"}
+l1VennCounts <- typeElements %>% 
+  filter(L1) %>%
+  dplyr::select(-ID, -L1) %>% 
+  getVennCounts
+grid.newpage()
+do.call(draw.quad.venn, c(l1VennCounts, list(fill = vennCols[-5])))
+```
+
+
+
+```{r nol1CoPlot, fig.height =4, fig.width=4, results='hide', fig.cap="Elements co-occurring where no L1 element is present"}
+l1VennCounts <- typeElements %>% 
+  filter(!L1) %>%
+  select(-ID, -L1) %>% 
+  getVennCounts
+grid.newpage()
+do.call(draw.quad.venn, c(l1VennCounts, list(fill = vennCols[-5])))
+```
+
+
+```{r l1Boot, cache=TRUE}
+l1Boot <- bootMedians(l1Data, 
+                       filter(l1Data, l1)$ID, filter(l1Data, !l1)$ID, 
+                       binCol = "other$", valCols = "TPM", nGenes = 1000, nBoot = 1000)
+```
+
+
+```{r l1BootTab, echo=FALSE}
+data.frame(P = l1Boot$p) %>% 
+  add_rownames("Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue), 
+         Tissue = capwords(Tissue)) %>% 
+  rename(`P > 0` = P) %>% 
+  kable(digits = 3)
+```
+
+```{r l1BootPlot, echo=FALSE, message=FALSE, warning=FALSE}
+l1Boot$samples %>% 
+  melt(variable.name="Tissue", value.name = "TPM") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  geom_vline(x = 0) +
+  labs(y = "Density")
+```
+
 ## Things for Steve to do
 - Make a heatmap of elements by region, using proportions
 - Fit a Logistic Regresssion model for prob of elements within a region
 - Also explore this idea modelling the rate of appearance within a region...?
+
+# alu Elements By separate regions
+
+First we should see where the *alu* elements are mainly located, ignoring any other TEs which co-occur
+```{r aluVenn}
+aluRegs <- select(tpmData, ID, contains("alu")) %>%
+  mutate(L1 = rowSums(select(tpmData, contains("L1")))) %>%
+  mutate(L2 = rowSums(select(tpmData, contains("L2")))) %>%
+  mutate(LTR = rowSums(select(tpmData, contains("LTR")))) %>%
+  mutate(mir = rowSums(select(tpmData, contains("mir")))) %>%
+  sapply(function(x) {if(is.numeric(x)) {as.logical(x)} else {x}}, simplify = FALSE) %>%
+  data.frame(stringsAsFactors=FALSE) %>%
+  tbl_df
+aluRegVennCounts <- aluRegs %>%
+  select(contains("alu")) %>%
+  getVennCounts()
+grid.newpage()
+do.call(draw.quad.venn, c(aluRegVennCounts, list(fill = vennCols[-5])))
+```
+
+## alu Elements in the CDS
+It appears that the `r sum(tpmData$alu_cds_IDs)` genes with an *alu* element in the proximal promoter can be relatively well matched to genes without an *alu* in the proximal promoter.
+However, this is a quite small dataset so the number of genes set for ech iteration of the bootstrap was 300.
+
+```{r aluCdsBoot, cache=TRUE}
+aluCdsData <- tpmData %>%
+  select(-contains("IDs")) %>%
+  bind_cols(aluRegs[-1])
+aluCdsData$otherBin <- binsFromCols(select(aluRegs, -ID, -alu_cds_IDs), collapse=":")
+aluCdsBoot <- bootMedians(aluCdsData, 
+                           filter(aluCdsData, alu_cds_IDs)$ID, filter(aluCdsData, !alu_cds_IDs)$ID,
+                           binCol = "otherBin$", nBoot=1000, nGenes = 300)
+```
+
+
+All Tissues showed strong evidence of down-regulation due to the presence of an *alu* in the CDS
+```{r aluCdsBootTab, echo=FALSE}
+data.frame(P = aluCdsBoot$p) %>% 
+  add_rownames("Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue), 
+         Tissue = capwords(Tissue)) %>% 
+  rename(`P > 0` = P) %>% 
+  kable(digits = 3)
+```
+
+```{r aluCdsBootPlot, echo=FALSE, message=FALSE, warning=FALSE}
+aluCdsBoot$samples %>% 
+  melt(variable.name="Tissue", value.name = "TPM") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  geom_vline(x = 0) +
+  labs(y = "Density")
+```
+
+# alu Elements in Proximal Promoters Only
+
+It appears that the `r sum(tpmData$alu_prox_IDs)` genes with an *alu* element in the proximal promoter can be relatively well matched to genes without an *alu* in the proximal promoter.
+As this is a larger set of genes, the number chosen for the bootstrap was 1000, as per the default
+
+```{r aluProxBoot, cache=TRUE}
+aluProxData <- tpmData %>%
+  select(-contains("IDs")) %>%
+  bind_cols(aluRegs[-1])
+aluProxData$otherBin <- binsFromCols(select(aluRegs, -ID, -alu_prox_IDs), collapse=":")
+aluProxBoot <- bootMedians(aluProxData, 
+                           filter(aluProxData, alu_prox_IDs)$ID, filter(aluProxData, !alu_prox_IDs)$ID,
+                           binCol = "otherBin$", nBoot=1000)
+```
+
+
+All Tissues showed strong evidence of up-regulation due to the presence of an *alu* in the promoter
+```{r aluProxBootTab, echo=FALSE}
+data.frame(P = aluProxBoot$p) %>% 
+  add_rownames("Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue), 
+         Tissue = capwords(Tissue)) %>% 
+  rename(`P > 0` = P) %>% 
+  kable(digits = 3)
+```
+
+```{r aluProxBootPlot, echo=FALSE, message=FALSE, warning=FALSE}
+aluProxBoot$samples %>% 
+  melt(variable.name="Tissue", value.name = "TPM") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  geom_vline(x = 0) +
+  labs(y = "Density")
+```
+
+# alu Elements in 3'UTR
+
+It appears that the `r sum(tpmData$alu_utr3_IDs)` genes with an *alu* element in the 3'UTR can be relatively well matched to genes without an *alu* in the 3'UTR.
+As this is a larger set of genes, the number chosen for the bootstrap was 1000, as per the default
+
+```{r aluUtr3Boot, cache=TRUE}
+aluUtr3Data <- tpmData %>%
+  select(-contains("IDs")) %>%
+  bind_cols(aluRegs[-1])
+aluUtr3Data$otherBin <- binsFromCols(select(aluRegs, -ID, -alu_utr3_IDs), collapse=":")
+aluUtr3Boot <- bootMedians(aluUtr3Data, 
+                           filter(aluUtr3Data, alu_utr3_IDs)$ID, filter(aluUtr3Data, !alu_utr3_IDs)$ID,
+                           binCol = "otherBin$", nBoot=1000)
+```
+
+
+The evidence for up-regulation was less compelling for *alu* elements in the 3'UTR, with Testes in particular showing no effects.
+```{r aluUtr3BootTab, echo=FALSE}
+data.frame(P = aluUtr3Boot$p) %>% 
+  add_rownames("Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue), 
+         Tissue = capwords(Tissue)) %>% 
+  rename(`P > 0` = P) %>% 
+  kable(digits = 3)
+```
+
+```{r aluUtr3BootPlot, echo=FALSE, message=FALSE, warning=FALSE}
+aluUtr3Boot$samples %>% 
+  melt(variable.name="Tissue", value.name = "TPM") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  geom_vline(x = 0) +
+  labs(y = "Density")
+```
+
+# alu Elements in 5'UTR
+
+It appears that the `r sum(tpmData$alu_utr5_IDs)` genes with an *alu* element in the 5'UTR can be relatively well matched to genes without an *alu* in the 5'UTR.
+As this is also a larger set of genes, the number chosen for the bootstrap was 1000, as per the default.
+However, as the 5'UTR region is very element rich, the bias towards genes with all elements being co-identified was very high, and as such, any genes with the combination of L1, L2, LTR & mir was removed.
+This left one combination of TEs (alu_cds_IDs:L1:LTR:mir) with a slightly higher than expected sampling probability.
+However, as this only affected one gene, giving an expected number in each sample of 1.4/1000 genes, this was ignored, and the maximum permitted p-values was raised to 1/500
+
+```{r aluVenn}
+aluUtr5Regs <- select(tpmData, ID, contains("alu_utr5")) %>%
+  mutate(L1 = rowSums(select(tpmData, contains("L1")))) %>%
+  mutate(L2 = rowSums(select(tpmData, contains("L2")))) %>%
+  mutate(LTR = rowSums(select(tpmData, contains("LTR")))) %>%
+  mutate(mir = rowSums(select(tpmData, contains("mir")))) %>%
+  sapply(function(x) {if(is.numeric(x)) {as.logical(x)} else {x}}, simplify = FALSE) %>%
+  data.frame(stringsAsFactors=FALSE) %>%
+  tbl_df
+aluUtr5RegVennCounts <- aluUtr5Regs %>%
+  select(-ID) %>%
+  getVennCounts()
+grid.newpage()
+do.call(draw.quintuple.venn, c(aluUtr5RegVennCounts, list(fill = vennCols)))
+```
+
+```{r aluUtr5Boot, cache=TRUE}
+aluUtr5Data <- tpmData %>%
+  select(-contains("IDs")) %>%
+  bind_cols(aluRegs[-1])
+aluUtr5Data$otherBin <- binsFromCols(select(aluRegs, -ID, -alu_utr5_IDs), collapse=":")
+aluUtr5Boot <- bootMedians(filter(aluUtr5Data, !grepl("L1:L2:LTR:mir", otherBin)),
+                           filter(aluUtr5Data, alu_utr5_IDs)$ID, filter(aluUtr5Data, !alu_utr5_IDs)$ID,
+                           binCol = "otherBin$", nBoot=1000, maxP=1/500)
+```
+
+
+No evidence of directional influence was found for an *alu* found in the 5'UTR region.
+```{r aluUtr5BootTab, echo=FALSE}
+data.frame(P = aluUtr5Boot$p) %>% 
+  add_rownames("Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue), 
+         Tissue = capwords(Tissue)) %>% 
+  rename(`P > 0` = P) %>% 
+  kable(digits = 5)
+```
+
+```{r aluUtr5BootPlot, echo=FALSE, message=FALSE, warning=FALSE}
+aluUtr5Boot$samples %>% 
+  melt(variable.name="Tissue", value.name = "TPM") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw() +
+  geom_vline(x = 0) +
+  labs(y = "Density")
+```
+
+
