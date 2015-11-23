@@ -1,0 +1,363 @@
+\documentclass{article}
+\usepackage{underscore}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{titling}
+\usepackage{a4wide}
+\usepackage{placeins}
+
+
+\begin{document}
+
+\title{TE Re-Analysis For Re-Submission,\\
+Using the Tilted Bootstrap Approach}
+\author{Steve Pederson\\
+Adelaide University\\
+Bioinformatics Hub}
+\maketitle
+
+\section{Workspace Setup}
+
+\subsection*{R Packages}
+
+A number of custom functions were used in this analysis, and these are available in the packages \texttt{spShortcuts} and \texttt{funsForLu}.
+These are available on github, and will need to be installed using the following code before loading the required packages.
+<<installCustom, eval=FALSE>>=
+library(devtools)
+install_github("steveped/funsForLu")
+install_github("steveped/spShortcuts")
+@
+
+<<loadPackages, message=FALSE, warning=FALSE>>=
+library(ggplot2)
+library(stringr)
+library(reshape2)
+library(matrixStats)
+library(VennDiagram)
+library(knitr)
+library(xtable)
+library(corrplot)
+library(scales)
+library(pscl)
+library(lmtest)
+library(dplyr)
+library(funsForLu)
+library(spShortcuts)
+@
+
+<<knitrSetup, include=FALSE>>=
+knit_hooks$set(crop=hook_pdfcrop)
+#opts_knit$set(self.contained=FALSE)
+opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, include=TRUE, echo=TRUE)
+pdf.options(useDingbats=TRUE)
+@
+
+\subsection*{Data Loading}
+
+<<loadData, cache=TRUE>>=
+tpmFile <- file.path("data", "new_whole_gene_expression_dataset.txt")
+tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
+  dplyr::select(ID, length, contains("TPM"), contains("IDs")) %>%
+  tbl_df
+@
+
+The revised data object with read counts as TPM values was then loaded in giving information about TE content and location for \Sexpr{nrow(tpmData)} genes.
+
+<<elements, cache=TRUE, dependson='loadData'>>=
+elements <- grep("IDs", colnames(tpmData), value = TRUE) %>% 
+  str_split_fixed(pattern="_", 3) %>%
+  as.data.frame(stringsAsFactors = FALSE) %>%
+  dplyr::select(type = V1, region = V2) %>%
+  lapply(unique) %>%
+  lapply(sort)
+@
+
+Logical variables for each element type and region were then added to the main \texttt{data.frame} object.
+<<addLog, cache=TRUE, dependson=c('elements', 'loadData')>>=
+tpmData <- tpmData %>%
+  bind_cols(sapply(unlist(elements) %>% 
+                     as.vector, 
+                   function(x){dplyr::select(tpmData, contains(x)) %>% 
+                                 rowSums %>% 
+                                 as.logical},
+                   simplify = FALSE))
+@
+
+The complete set of tissues was also defined as a character vector.
+<<tissues>>=
+tissues <- gsub("_TPM", "", grep("TPM", colnames(tpmData), value = TRUE))
+@
+
+\section{Data Inspection}
+In order to observe the general layout of the data, elements were plotted by type (Figure \ref{fig:plotTypeVenn}) and region.
+
+\subsection{Inspection By Element Type}
+<<typeVenn>>=
+vennCols <- c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3", "orchid3")
+noElCount <- paste("No elements in gene:", 
+                   nrow(filter(tpmData, !alu, !L1, !L2, !LTR, !mir)))
+typeVenn <- tpmData %>% 
+  dplyr::select(one_of(elements$type)) %>%
+  getVennCounts
+@
+
+<<plotTypeVenn, echo=FALSE, results='hide', fig.cap='Element types and their co-occurrences', crop=FALSE>>=
+grid.newpage()
+do.call(draw.quintuple.venn, c(typeVenn, list(fill = vennCols)))
+grid.text(noElCount, 0.05, 0.85, just = "left")
+grid.text(paste0("Total genes: ", nrow(tpmData)), 0.05, 0.8, just="left")
+@
+
+From Figure \ref{fig:plotTypeVenn} it is very clear that many genes (\Sexpr{typeVenn$n12345}) contain all 5 elements, and this number far surpasses the numbers of any elements found in isolation.
+
+<<elementSummary>>=
+singleElements <- lapply(seq_along(elements$type),
+                         function(x){filter_(tpmData, 
+                                             elements$type[x], 
+                                             paste(paste0("!", elements$type[-x]), 
+                                                   collapse = " & "))["ID"]})
+names(singleElements) <- elements$type
+elementSummary <- data_frame(Type = elements$type,
+                             Single = vapply(singleElements, 
+                                             nrow, 
+                                             integer(1)),
+                             Total = vapply(Type, 
+                                            function(x){filter_(tpmData, x) %>% nrow}, 
+                                            integer(1)),
+                             Proportion = Single / Total)
+@
+
+<<elementSummaryXtab, echo=FALSE, results='asis'>>=
+elementSummary %>%
+  dplyr::select(`Element Type` = Type,
+         Total,
+         `Found In Isolation` = Single,
+         Proportion) %>%
+  xtable(digits = c(0, 0, 0, 0, 3),
+         caption = paste("Summary of each TE type, and how many are found with no other elements, i.e. in isolation.",
+                         "The proportion refers to those found in isolation"),
+         label = "tab:elSumm") %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+\subsection{Inspection By Region}
+A similar approach was taken to view the data structure broken down by genomic region.
+
+<<regionVenn, results='hide', fig.cap="Genomic regions, and the distribution of TE's within them">>=
+regionVenn <- tpmData %>% 
+  dplyr::select(one_of(elements$region)) %>%
+  getVennCounts
+grid.newpage()
+do.call(draw.quad.venn, c(regionVenn, list(fill = vennCols[-5])))
+grid.text(noElCount, 0.05, 0.92, just = "left")
+grid.text(paste0("Total genes: ", nrow(tpmData)), 0.05, 0.88, just="left")
+@
+
+From Figure \ref{fig:regionVenn} it is very clear that TEs are less commonly found in the CDS region of a gene, which make immediate intuitive sense.
+In contrast to the previous section, a much greater proportion of genes only contained elements in a single region
+
+<<regionSummary>>=
+singleRegion <- lapply(seq_along(elements$region),
+                       function(x){filter_(tpmData, 
+                                           elements$region[x], 
+                                           paste(paste0("!", elements$region[-x]), 
+                                                 collapse = " & "))["ID"]})
+names(singleRegion) <- elements$region
+regionSummary <- data_frame(Region = elements$region,
+                             Single = vapply(singleRegion, 
+                                             nrow, 
+                                             integer(1)),
+                             Total = vapply(Region, 
+                                            function(x){filter_(tpmData, x) %>% nrow}, 
+                                            integer(1)),
+                             Proportion = Single / Total)
+@
+
+<<regionSummaryXtab, echo=FALSE, results='asis'>>=
+regionSummary %>%
+  dplyr::select(Region, Total,
+         `Elements In Single Region` = Single,
+         Proportion) %>%
+  xtable(digits = c(0, 0, 0, 0, 3),
+         caption = paste("Summary of each genomic region, and how many are found with elements in one region only.",
+                         "The proportion refers to those genes with TEs in only a single region."),
+         label = "tab:regSumm") %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+\subsection{Distribution of Elements within Regions}
+The association of each element with each other across the various regions was also explored (Figure \ref{fig:corrplot}), with the striking observation that many genes contain each element within the 5'UTR.
+Overall, a total of \Sexpr{(tpmData %>% dplyr::select(contains("utr5_IDs")) %>% rowSums %>% table)[6]} genes contained each element type in this region.
+
+<<corrplot, echo=FALSE, fig.cap="Correlation plot, showing the frequencies of co-occurrence for each element type, broken down by region. The strong correlation between each element type in the 5'UTR is the most clear pattern, with somewhat lesser numbers of genes showinf a similar patter in the 3'UTR and proximal promoter.">>=
+elRegs <- sort(grep("IDs", colnames(tpmData), value = TRUE))
+tpmData %>% 
+  dplyr::select(one_of(elRegs)) %>%
+  cor %>%
+  corrplot(method = "shade")
+@
+
+The breakdown of each element type within each region is also shown as a proportion in Table \ref{tab:regProps} and Figure \ref{fig:plotRegProps}.
+The most common elements were clearly alu, mir and L2s, with the 5'UTRs showing the most common appearances of all motifs.
+
+<<regPropsXtab, echo=1, results='asis'>>=
+regionProps <- elements$region %>%
+  sapply(function(x){
+    filter_(tpmData, x) %>% summarise_each(funs(mean), one_of(elements$type)) 
+  },simplify = FALSE) %>%
+  bind_rows %>%
+  mutate(Region = elements$region) %>%
+  dplyr::select(Region, one_of(elements$type)) 
+regionProps %>%
+  xtable(digits = 3,
+         caption = paste("Proportion of each region containing each element."),
+         label = "tab:regProps") %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<plotRegProps, echo=FALSE, fig.height=5, fig.cap="Proportions of each region containing each element.">>=
+regionProps %>%
+  melt(id.vars = "Region", variable.name = "Type", value.name = "Proportion") %>%
+  ggplot(aes(x = Region, y = Type, fill = Proportion)) +
+  geom_raster() +
+  scale_fill_gradient(low = "white", high = muted("blue"), limits = c(0.25, 0.9)) +
+  theme_bw() +
+  labs(y = "Element Type")
+@
+
+\FloatBarrier
+\section{Data Analysis}
+\subsection{Transposable Elements With No Co-occurring Elements}
+The initial stages of each analysis were to take the sets of genes with each element in isolation, and determine whether each element has any detectable influence on the overall gene expression.
+To generate the plots for this analysis, the data was restructured from wide to long format.
+<<longData, cache=TRUE, cache=TRUE, dependson=c('loadData', 'elements', 'addLog')>>=
+longData <- tpmData %>%
+  melt(id.vars = c("ID", "length", elements$type), 
+       measure.vars = paste0(tissues, "_TPM"), 
+       value.name = "TPM", 
+       variable.name = "Tissue") %>% 
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue),
+         TE = as.logical(alu + L1 + L2 + LTR + mir),
+         rawTPM = as.integer(round(exp(TPM)*100, 0))) %>%
+  tbl_df
+@
+
+The number of genes included with a raw TPM value $=0$ (i.e. prior to log transformation) were also noted for each tissue type in Table \ref{tab:notExp}, with a clear enrichment in each dataset for genes with TPM $=0$.
+Any subsequent analysis using a negative binomial distribution should be zero-inflated as a result of this observation.\\
+\\
+As is also seen in Figure \ref{fig:plotTissues}, the general range of expression values is much lower in Liver than for the other tissues.
+
+<<xtabNotExp, echo=FALSE, results='asis', message=FALSE >>=
+longData %>% 
+  filter(TPM == -Inf) %>% 
+  count_(c("Tissue", "TE")) %>% 
+  dcast(Tissue~TE) %>% 
+  dplyr::select(Tissue, `No TE` = `FALSE`, `TE Present` = `TRUE`) %>% 
+  mutate(`Prop. No TE` = `No TE` / length(unique(filter(longData, !TE)$ID)),
+         `Prop. TE` = `TE Present` / length(unique(filter(longData, TE)$ID)),
+         Total = `No TE` + `TE Present`,
+         `Prop. Of All Genes` = Total / nrow(tpmData)) %>%
+  dplyr::select(Tissue, `No TE`, `Prop. No TE`, 
+                `TE Present`, `Prop. TE`,
+                Total, `Prop. Of All Genes` ) %>%
+  xtable(caption = paste("Numbers and proportions of genes in each Tissue which were not expressed, i.e. where TPM = 0.",
+                         "The presence or absence of a TE is also indicated in the summaries."),
+         label = "tab:notExp",
+         digits = c(0, 0, 0, 3, 0, 3, 0, 3)) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE, 
+        size = "small")
+@
+
+
+<<plotTissues, echo = FALSE, fig.height=5, fig.cap="Distribution of log(TPM) values for each tissue type.">>=
+longData %>%
+  filter(TPM > -Inf) %>%
+  ggplot(aes(x = Tissue, y = TPM, fill = Tissue)) +
+  geom_boxplot() +
+  theme_bw() +
+  guides(fill = FALSE) +
+  labs(y = "log(TPM)")
+@
+
+\subsection*{Fitting Using a Zero-Inflated Negative Binomial}
+The action of each element alone was first investigated using a zero-inflated negative binomial distribution.
+This approach explicitly models two distributions:\\
+\begin{enumerate}
+  \item The probability of not obtaining a zero value for the count
+  \item The probability distribution of the counts, given they are non-zero
+\end{enumerate}
+
+In this way we can model the impacts of each isolated TE on the probability of expression, as well as the impacts on expression levels.
+Two models were initially fitted, the first including Tissue \& TE interactions in the probability side of the model, the second, without these interactions.
+
+
+<<fitAllZINB, cache=TRUE, dependson=c('loadData', 'elements', 'addLog', 'longData')>>=
+singleData <- longData %>% 
+  mutate(TEtype = binsFromCols(dplyr::select(longData, one_of(elements$type)))) %>%
+  filter(TEtype %in% c(elements$type, "none")) %>%
+  mutate(TEtype  = factor(TEtype, levels= c("none", elements$type)))
+fitSingleElementsInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length),
+                               data = singleData, dist = "negbin")
+fitSingleElementsNoInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length) | 
+                                   0 + Tissue + TEtype + log(length),
+                               data = singleData, dist = "negbin")
+@
+
+These models were checked for a goodness of fit using the likelihood ratio test, with no discernible difference between the two models.
+For simplicity the model with no Tissue/TE interactions within the probability side of the model was selected.
+
+<<lrTest>>=
+lrtest(fitSingleElementsNoInt, fitSingleElementsInt )
+@
+
+<<negBinProbCoefs, echo=FALSE,results='asis'>>=
+summary(fitSingleElementsNoInt)$coef$zero %>% 
+  as.data.frame() %>% 
+  add_rownames("Term") %>% 
+  mutate(Term = gsub("TEtype", "", Term), 
+         Term = gsub("Tissue", "", Term),
+         adjP = p.adjust(`Pr(>|z|)`, "bonferroni"), 
+         Sig = aster(adjP)) %>%
+  xtable(digits = c(0, 0, 3, 3, 3, -3, -3, 0), 
+         caption = "Coefficients from the Probability side of the zero-inflated negative bionomial model",
+         label = "tab:negBinProbCoefs") %>% 
+  print(caption.placement = "top", 
+        include.rownames = FALSE)
+@
+
+As can be seen in Table \ref{tab:negBinProbCoefs}, both alu and L2 elements strongly increase the probability of a gene being detected as expressed.
+LTR elements have strongly negative impact on the probability of being detected as expressed.
+L1 and mir elements have weakly negative and positive influences respectively.
+
+In order to better understand the given coefficients in Table \ref{tab:negBinProbCoefs}, for a 2.5kb gene in Adipose tissue with an alu element, the estimated probability ($\hat{\pi}$) of being detected as expressed would be:\\
+\\
+\begin{tabular}{ll}
+  $\hat{\pi}$ &= Inv-logit (\Sexpr{format(summary(fitSingleElementsNoInt)$coef$zero[1, 1], digits =4)} + 
+  \Sexpr{format(summary(fitSingleElementsNoInt)$coef$zero[7, 1], digits=4)} + \Sexpr{format(summary(fitSingleElementsNoInt)$coef$zero[12, 1], digits =4)} $\times \log$ 2500 ) \\
+            & = 0.7490 \\
+\end{tabular}
+
+(Now interpret the other coefficients...)
+<<>>=
+summary(fitSingleElementsNoInt)$coef$count
+@
+
+
+\subsection{Analysis using a bootstrap approach}
+Given these findings above, we need to explore using a bootstrap, but this time we can exclude the not expressed genes.
+That should actually be quite interesting....
+
+<<save, eval = FALSE>>=
+save.image("TEsWithZINBFits.RData")
+@
+
+
+
+
+\end{document}
