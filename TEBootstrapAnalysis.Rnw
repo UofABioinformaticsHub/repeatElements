@@ -341,15 +341,53 @@ In order to better understand the given coefficients in Table \ref{tab:negBinPro
   $\hat{\pi}$ &= Inv-logit (\Sexpr{format(summary(fitSingleElementsNoInt)$coef$zero[1, 1], digits =4)} + 
   \Sexpr{format(summary(fitSingleElementsNoInt)$coef$zero[7, 1], digits=4)} + \Sexpr{format(summary(fitSingleElementsNoInt)$coef$zero[12, 1], digits =4)} $\times \log$ 2500 ) \\
             & = 0.7490 \\
-\end{tabular}
+\end{tabular}\\
+\\
+For the count component of the model, all baseline changes due to an element are expressed by default in reference to Adipose Tissue (Table \ref{tab:negBinRateCoef}).
+\begin{itemize}
+  \item L1, LTR and mir elements are all associated with a reduction in counts for Adipose Tissue, whilst alu and L2 elements appear to have no effect. 
+  \item alu elements in Brain and Skeletal Muscle appear to have a repressive effect in comparison to that observed in Adipose Tissue
+  \item In Liver, the repressive effect of the L1 elements appear to be reversed, whilst in Skeletal Muscle the repressive effect is enhanced
+  \item In Liver L2s appear to be associated with upregulation
+  \item In Liver, the repressive effects of LTRs appear to be reversed. Likewise for Skeletal Muscle
+  \item In Liver, mirs appear to be associated with upregulation.
+\end{itemize}
 
-(Now interpret the other coefficients...)
-<<>>=
-summary(fitSingleElementsNoInt)$coef$count
+The interpretation of the above needs careful thought. 
+All interaction terms between tissue and an element are in reference to the baseline, and indictate that the observed effects exceed what would be expected if no interaction was observed.
+The regular reduction in repressive function for elements in Liver, may not actually be due to a loss of repressive effect, but may instead be an artefact of the lower overall range of TPM values.
+Notably, Skeletal Muscle was also seen with elements having their repressive effects reversed.
+Both of these tissues had the highest proportions overall of undetecable genes (Table \ref{tab:notExp}).
+An alternative way to investigate this would be to fit each tissue separately.\\
+
+It should also be noted than in the prior bootstrapping approach, the median expression value was used for calculations, which included not-expressed amongst the expressed values.
+The negative binomial approach effectively separates the not-expressed and the expressed genes, in an somewhat analagous method to the k-means approach.
+The increase in probability of detection, coupled with a repressive effect for many TEs does appear to be somewhat contradictory, at least on the surface.
+The superiority of one approach over the other is not immediately clear.
+
+<<negBinRateCoefs, echo=FALSE,include=TRUE,results='asis'>>=
+summary(fitSingleElementsNoInt)$coef$count %>% 
+  as.data.frame() %>% 
+  add_rownames("Term") %>% 
+  rename(Pval = `Pr(>|z|)`) %>%
+  mutate(adjP = p.adjust(Pval, "bonferroni"), 
+         Sig = aster(adjP), 
+         Term = gsub("TEtype", "", Term), 
+         Term = gsub("Tissue", "", Term)) %>% 
+  xtable(digits = c(0, 0, 2, 2, 2, -2, -2, 0),
+         caption = "Count Coefficients for the Negative Binomial Model",
+         label = "tab:negBinRateCoef") %>%
+  print(include.rownames=FALSE,
+        caption.placement = "top",
+        booktabs = TRUE,
+        add.to.row = list(pos = c(6, 11, 12, as.list(seq(17, 38, by=5 ))),
+                          command = rep("\\midrule\n",8)))
 @
 
+\FloatBarrier
+\subsection{Fitting each tissue separately}
 
-\subsection{Analysis using a bootstrap approach}
+\section{Analysis using a bootstrap approach}
 Given these findings above, we need to explore using a bootstrap, but this time we can exclude the not expressed genes.
 That should actually be quite interesting....
 
