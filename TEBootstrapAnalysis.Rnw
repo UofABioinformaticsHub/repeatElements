@@ -302,7 +302,8 @@ singleData <- longData %>%
   mutate(TEtype = binsFromCols(dplyr::select(longData, one_of(elements$type)))) %>%
   filter(TEtype %in% c(elements$type, "none")) %>%
   mutate(TEtype  = factor(TEtype, levels= c("none", elements$type)))
-fitSingleElementsInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length),
+fitSingleElementsInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length) |
+                                 0 + Tissue*TEtype + log(length),
                                data = singleData, dist = "negbin")
 fitSingleElementsNoInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length) | 
                                    0 + Tissue + TEtype + log(length),
@@ -387,9 +388,39 @@ summary(fitSingleElementsNoInt)$coef$count %>%
 \FloatBarrier
 \subsection{Fitting each tissue separately}
 
+<<fitTissueNB>>=
+singleTissueNBFits <- tissues %>%
+  capwords %>%
+  sapply(function(x){hurdle(rawTPM ~ TEtype + log(length),
+                            data = singleData, 
+                            subset = Tissue==x,
+                            dist = "negbin")},
+         simplify = FALSE)
+@
+
+<<>>=
+tissues %>%
+  capwords %>%
+  sapply(function(x){singleTissueNBFits[[x]]$coefficients$count})
+@
+
+The main thing I noticed in the above is that the impact of length varies between tissues.
+Does this make biological sense, or is it an artefact of the different TPM distributions across tissues? \\
+\\
+Re-fitting the model incorporating this possibility gives a better model, as determined by a likelihood ratio test
+<<reFit, cache=TRUE>>=
+fitSingleElementsLengthInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length)*Tissue | 
+                                   0 + Tissue + TEtype + log(length),
+                               data = singleData, dist = "negbin")
+lrtest(fitSingleElementsLengthInt , fitSingleElementsNoInt )
+@
+
+Inspection of the cofficients for this model no revealed the Liver \& Skeletal Muscle effects for each TE were significantly different, implying this may possibly be due to the tissue specific TPM distributions.
+
 \section{Analysis using a bootstrap approach}
-Given these findings above, we need to explore using a bootstrap, but this time we can exclude the not expressed genes.
+Given these findings above, we need to explore using a bootstrap, but this time we can exclude the not expressed genes and use the mean logTPM values.
 That should actually be quite interesting....
+
 
 <<save, eval = FALSE>>=
 save.image("TEsWithZINBFits.RData")
