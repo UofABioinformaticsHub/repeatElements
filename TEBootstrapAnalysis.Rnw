@@ -6,7 +6,8 @@
 \usepackage{titling}
 \usepackage{a4wide}
 \usepackage{placeins}
-
+\usepackage{url}
+\usepackage{xfrac}
 
 \begin{document}
 
@@ -40,6 +41,7 @@ library(xtable)
 library(corrplot)
 library(scales)
 library(pscl)
+library(boot)
 library(lmtest)
 library(dplyr)
 library(funsForLu)
@@ -313,7 +315,7 @@ fitSingleElementsNoInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length) |
 These models were checked for a goodness of fit using the likelihood ratio test, with no discernible difference between the two models.
 For simplicity the model with no Tissue/TE interactions within the probability side of the model was selected.
 
-<<lrTest>>=
+<<lrTest, cache=TRUE, dependson='fitAllZINB'>>=
 lrtest(fitSingleElementsNoInt, fitSingleElementsInt )
 @
 
@@ -388,7 +390,44 @@ summary(fitSingleElementsNoInt)$coef$count %>%
 \FloatBarrier
 \subsection{Fitting each tissue separately}
 
-<<fitTissueNB>>=
+<<tissueW, cache=TRUE, dependson=c('loadData', 'fitAllZINB')>>=
+tissueComps <- tissues %>% 
+  capwords %>% 
+  combn(2)
+tissueW <- apply(tissueComps, MARGIN = 2, 
+                 FUN = function(x){wilcox.test(rawTPM ~ Tissue, 
+                                          data = filter(singleData, 
+                                                        rawTPM > 0, 
+                                                        Tissue %in% x) %>% 
+                                            mutate(rawTPM = rawTPM -1) %>% 
+                                            select(rawTPM, Tissue))})
+@
+
+<<xTabTissueW, echo=FALSE, include=TRUE, results='asis'>>=
+tissueW %>% 
+  lapply(function(x){data_frame(W = x$statistic,  
+                                p = x$p.value)}) %>% 
+  bind_rows %>%
+  mutate(Comparison = paste(tissueComps[1,], 
+                            tissueComps[2,], 
+                            sep = " Vs. "),
+         adjP = p.adjust(p, "bonferroni"),
+         Sig = aster(adjP)) %>%
+  select(Comparison, W, p, adjP, Sig) %>%
+  xtable(digits = c(0, 0, 0, -2, -2, 0),
+         label = "tab:tissueW",
+         caption = paste("Tests for distributional homogeneity across tissues, using a Wilcoxon-test.",
+                         "Adjusted p-values generated using Bonferroni's adjustment.")) %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+The above results also raised the possibility that the TPM distributions were not constant between tissues.
+This was tested in a pairwise context using a Wilcoxon-test.
+Results are shown in Table \ref{tab:tissueW}, and considerable variability was noted with the exceptions of Brain, Kidney \& Testes
+As such, each tissue was fitted individually, which also allowed for fitting of any tissue-specific effects of gene-length. \\
+
+<<fitTissueNB, cache=TRUE, dependson=c('loadData', 'elements', 'addLog', 'longData')>>=
 singleTissueNBFits <- tissues %>%
   capwords %>%
   sapply(function(x){hurdle(rawTPM ~ TEtype + log(length),
@@ -398,34 +437,209 @@ singleTissueNBFits <- tissues %>%
          simplify = FALSE)
 @
 
-<<>>=
-tissues %>%
-  capwords %>%
-  sapply(function(x){singleTissueNBFits[[x]]$coefficients$count})
+\subsubsection*{Effects on the Probability of Expression}
+In order to ascertain any tissue-specific TE effects on the probability of expression, 95\% confidence intervals were plotted for each element in each tissue.
+As there were 5 elements across 6 tissues, the intervals were generated using a Bonferroni-adjusted critical value ($Z = $\Sexpr{-qnorm(0.025/30)}), which corresponds to , $\alpha = \sfrac{0.05}{30}$.
+
+<<zeroConfInt>>=
+critVal <- -qnorm(0.025/30)
+zeroConfInt <- names(singleTissueNBFits) %>%
+  lapply(function(x){data.frame(summary(singleTissueNBFits[[x]])$coef$zero) %>%
+                       add_rownames("TE") %>%
+                       filter(grepl("TEtype", TE)) %>%
+                       mutate(Tissue = x)}) %>%
+  bind_rows() %>%
+  select(Tissue, TE, Estimate, se = contains("Std")) %>%
+  mutate(TE  = gsub("TEtype", "", TE),
+         lower = Estimate - critVal*se,
+         upper = Estimate + critVal*se)
 @
 
-The main thing I noticed in the above is that the impact of length varies between tissues.
-Does this make biological sense, or is it an artefact of the different TPM distributions across tissues? \\
-\\
-Re-fitting the model incorporating this possibility gives a better model, as determined by a likelihood ratio test
-<<reFit, cache=TRUE>>=
-fitSingleElementsLengthInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length)*Tissue | 
-                                   0 + Tissue + TEtype + log(length),
-                               data = singleData, dist = "negbin")
-lrtest(fitSingleElementsLengthInt , fitSingleElementsNoInt )
+As seen in Figure \ref{fig:plotZeroConfInt}:
+\begin{itemize}
+  \item alu elements consistently increased the probability of being expressed across all tissues
+  \item L1 elements were inconsisent in their effects, with a potential bias towards genes not being expressed, most strongly observed in Skeletal Muscle
+  \item L2 elements showed evidence of an increased probability of expression in Skeletal Muscle, Kidney and Brain. A similar bias was also seen in the other tissues, whilst not formally acheiving significance
+  \item LTR elements showed evidence of a reduced probability of expression in Skeletal Muscle only, however this negative bias was also evident in all other tissues.
+  \item mir elements were also inconclusive with respect to the probability of being expressed
+\end{itemize}
+
+<<plotZeroConfInt, echo=FALSE, fig.height=6, fig.cap="95\\% Confidence Intervals on the logit scale for the tissue-specific effects on the probability of expression. All values are in comparison to the tissue sepcific baseline probability of expression for genes with no TEs, and all intervals used a Bonferroni-adjusted critical value. The zero-line, indicative of no effect is shown as a dotted grey line.">>=
+zeroConfInt %>%
+  ggplot(aes(x = Estimate, y = Tissue)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), 
+                 height = 0.7) +
+  geom_vline(x = 0, colour = "grey50", linetype=2) +
+  theme_bw() +
+  labs(x = "Change in p(Expression) from baseline", 
+       y = "Tissue") + 
+  facet_wrap(~TE, nrow = 3) 
 @
 
-Inspection of the cofficients for this model no revealed the Liver \& Skeletal Muscle effects for each TE were significantly different, implying this may possibly be due to the tissue specific TPM distributions.
+As no tissue specific effects were clearly observable in Figure \ref{fig:plotZeroConfInt}, the tissue-specific model was deemed inappropriate for the probability of expression, and the results given in Table \ref{tab:negBinProbCoefs} should be considered as the most representative.
 
-\section{Analysis using a bootstrap approach}
-Given these findings above, we need to explore using a bootstrap, but this time we can exclude the not expressed genes and use the mean logTPM values.
-That should actually be quite interesting....
+\subsubsection{Effects on the Rate of Expression}
 
-
-<<save, eval = FALSE>>=
-save.image("TEsWithZINBFits.RData")
+<<countConfInt>>=
+critVal <- -qnorm(0.025/30)
+countConfInt <- names(singleTissueNBFits) %>%
+  lapply(function(x){data.frame(summary(singleTissueNBFits[[x]])$coef$count) %>%
+                       add_rownames("TE") %>%
+                       filter(grepl("TEtype", TE)) %>%
+                       mutate(Tissue = x)}) %>%
+  bind_rows() %>%
+  select(Tissue, TE, Estimate, se = contains("Std")) %>%
+  mutate(TE  = gsub("TEtype", "", TE),
+         lower = Estimate - critVal*se,
+         upper = Estimate + critVal*se)
 @
 
+<<plotCountConfInt, echo=FALSE, fig.height=6, fig.cap="95\\% Confidence Intervals on the logit scale for the tissue-specific effects on the probability of expression. All values are in comparison to the tissue sepcific baseline probability of expression for genes with no TEs, and all intervals used a Bonferroni-adjusted critical value. The zero-line, indicative of no effect is shown as a dotted grey line.">>=
+countConfInt %>%
+  ggplot(aes(x = Estimate, y = Tissue)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), 
+                 height = 0.7) +
+  geom_vline(x = 0, colour = "grey50", linetype=2) +
+  theme_bw() +
+  labs(x = "Change on expression from baseline", 
+       y = "Tissue") + 
+  facet_wrap(~TE, scales = "free_x", nrow = 3) 
+@
+
+Bonferroni-adjusted confidence intervals were then generated for the effects of each TE on the overall levels of expression (Figure \ref{fig:plotCountConfInt}).
+\begin{itemize}
+  \item alu elements showed a bias towards upregulation in Adipose Tissue, Kidney, Liver and Testes, although this was clearly not significant. 
+  In Brain and Skeletal Muscle, this effect was clearly in the opposite direction, with this bias towards inhibition of expression being statistically significant in Brain Tissue only.
+  \item L1 elements showed a significant inhibitory influence in all tissues except Liver, were they showed exhibited a strong positive influence on expression.
+  \item L2 elements showed a negative bias only in Adipose Tissue and Testes, with a significant inhibitory effect in Brain, Kidney and Skeletal Muscle.
+  In Liver, this effect was reverse and L2 elements appeared to have a positive impact on gene expression
+  \item LTR elements were significantly inhibitory in all tissues except Liver and Skeletal Muscle, where they had no discernible influence at all.
+  \item mir elements also had a significant inhibitory influene in all tissues except Liver, where they appeared to have a positive influence on gene expression.
+\end{itemize}
+
+These elements consistently showed differing impacts on gene expression in Liver, which was somewhat surprising.
+However, given the lower overall expression levels observed in Figure \ref{fig:plotTissues} this may be an artefact of the different structure of this data.
+All model parameters not directly related to TEs showed this different behaviour as well (Table \ref{tab:modelParams}).
+In this table, all parameter estimates for liver had noticably higher standard errors, and the overdispersion parameter $\theta$ was also considerably lower, indicating greater overdispersion.
+Similarly, the effects of gene length (taken on the log scale) were that longer genes showed a greater level of reduced expression in this tissue.
+Whether this was a biological phenomenon or a technical artefact is unclear.
+
+
+<<modelParams, echo=FALSE, include=TRUE, results='asis'>>=
+singleTissueNBFits %>% 
+     sapply(function(x){summary(x)$coef$count[c("(Intercept)", "log(length)", "Log(theta)"),c("Estimate", "Std. Error")]}) %>% 
+  t %>% 
+  xtable(digits = c(0, 2, 2, 2, 3, 3, 3),
+         align = "|l|rrr|rrr|", 
+         label="tab:modelParams",
+         caption = "Estimates of general model parameters from tissue-specific model fitting.") %>%
+  print(include.colnames = FALSE,
+        caption.placement = "top",
+        add.to.row = list(pos = list(0),
+                          command = paste("& \\multicolumn{3}{|c|}{Estimates} & \\multicolumn{3}{|c|}{Std. Errors}\\\\",
+                                          "\\cline{2-7}",
+                                          paste(c("Tissue", "$\\mu$", "log(length)", "log($\\theta$)",
+                                                  "$\\mu$", "log(length)", "log($\\theta$) \\\\"),
+                                                collapse = " & "))))
+@
+
+\subsubsection{Brief Comments}
+It must be restated that the above analysis was on gene with either a single element, or no elements.
+This represents less than 20\% of the occurences of each element (Table \ref{tab:singleTEs}), and may be highly unrepresentative on a genome-wide scale.
+<<sampSize, echo=FALSE, include=TRUE, results='asis'>>=
+singleData %>% 
+  distinct(ID) %>% 
+  count_("TEtype") %>%
+  rename(`Element Type` = TEtype,
+         `Number Single TE Genes` = n) %>%
+  mutate(`Total TE Genes` = c(none=nrow(filter(tpmData, !alu, !L1, !L2, !LTR, !mir)), 
+                   tpmData %>% 
+                     select(one_of(elements$type)) %>% 
+                     colSums)) %>%
+  xtable(digits = 0,
+         caption = "Sample sizes for TEs appearing in isolation and in total.",
+         label = "tab:singleTEs") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+Additionally, the above relied on fitting the data via a zero-inflated negative binomial model, which fits count data on the linear scale.
+By using the hurdle approach, any zero-values for TPM were effectively removed from the model fitting stage.
+
+
+\FloatBarrier
+\section{Preparation for Using the Boostrap Approach}
+As noted above, the excessive overdispersion observed in the Liver sample may have had an impact of the model fitting stages.
+As an alternative to this approach, the sets of genes with a single element were boostrapped against those genes with no elements, in a Tissue specific manner.
+
+
+% <<blah, eval=FALSE, echo=FALSE>>=
+% tissues %>%
+%   capwords %>%
+%   sapply(function(x){singleTissueNBFits[[x]]$coefficients$zero})
+% @
+% 
+% 
+% Prior to fitting, however, the zero-inflation model was fitted across al tissues as a spearate logistic regression model.
+% Prediction intervals for the probability of expression for each element type were generated across tissues, using a hypothetical gene of length 2.7kb, which is close to the median gene length observed in the data.
+% 
+% <<alLogit>>=
+% allLogit <- glm(as.logical(rawTPM) ~ 0+ Tissue*TEtype + Tissue*log(length), data = singleData, family=binomial)
+% @
+% 
+% <<predInt>>=
+% newData <- data_frame(Tissue = rep(capwords(tissues), each=length(elements$type)+1),
+%                       TEtype = rep(c("none", elements$type), times = length(tissues)),
+%                       length = 2700)
+% critVal <- abs(qnorm(0.05/nrow(newData)))
+% preds <- predict(allLogit, newdata = newData, se.fit = TRUE)[1:2] %>%
+%   as.data.frame %>%
+%   bind_cols(newData) %>%
+%   select(Tissue, TEtype, fit, se.fit) %>%
+%   mutate(prob = inv.logit(fit),
+%          lower = inv.logit(fit - critVal*se.fit),
+%          upper = inv.logit(fit + critVal*se.fit))
+% @
+% 
+% <<plotPredInt>>=
+% preds %>% 
+%   ggplot(aes(x = prob, y = TEtype)) +
+%   geom_point() +
+%   geom_errorbarh(aes(xmin = lower, xmax = upper)) + 
+%   theme_bw() +
+%   facet_wrap(~Tissue, scales = "free_x")
+% @
+% 
+% 
+% 
+% 
+% 
+% 
+% The main thing I noticed in the above is that the impact of length varies between tissues.
+% Does this make biological sense, or is it an artefact of the different TPM distributions across tissues? \\
+% \\
+% Re-fitting the model incorporating this possibility gives a better model, as determined by a likelihood ratio test
+% <<reFit, cache=TRUE>>=
+% fitSingleElementsLengthInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length)*Tissue | 
+%                                    0 + Tissue + TEtype + log(length),
+%                                data = singleData, dist = "negbin")
+% lrtest(fitSingleElementsLengthInt , fitSingleElementsNoInt )
+% @
+% 
+% Inspection of the cofficients for this model no revealed the Liver \& Skeletal Muscle effects for each TE were significantly different, implying this may possibly be due to the tissue specific TPM distributions.
+% 
+% \section{Analysis using a bootstrap approach}
+% Given these findings above, we need to explore using a bootstrap, but this time we can exclude the not expressed genes and use the mean logTPM values.
+% That should actually be quite interesting....
+% 
+% 
+% <<save, eval = FALSE>>=
+% save.image("TEsWithZINBFits.RData")
+% @
+% 
 
 
 
