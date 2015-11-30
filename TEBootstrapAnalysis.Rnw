@@ -44,6 +44,7 @@ library(pscl)
 library(boot)
 library(lmtest)
 library(dplyr)
+library(parallel)
 library(funsForLu)
 library(spShortcuts)
 @
@@ -351,20 +352,20 @@ For the count component of the model, all baseline changes due to an element are
   \item L1, LTR and mir elements are all associated with a reduction in counts for Adipose Tissue, whilst alu and L2 elements appear to have no effect. 
   \item alu elements in Brain and Skeletal Muscle appear to have a repressive effect in comparison to that observed in Adipose Tissue
   \item In Liver, the repressive effect of the L1 elements appear to be reversed, whilst in Skeletal Muscle the repressive effect is enhanced
-  \item In Liver L2s appear to be associated with upregulation
+  \item In Liver L2s appear to be associated with up-regulation
   \item In Liver, the repressive effects of LTRs appear to be reversed. Likewise for Skeletal Muscle
-  \item In Liver, mirs appear to be associated with upregulation.
+  \item In Liver, mirs appear to be associated with up-regulation.
 \end{itemize}
 
 The interpretation of the above needs careful thought. 
-All interaction terms between tissue and an element are in reference to the baseline, and indictate that the observed effects exceed what would be expected if no interaction was observed.
+All interaction terms between tissue and an element are in reference to the baseline, and indicate that the observed effects exceed what would be expected if no interaction was observed.
 The regular reduction in repressive function for elements in Liver, may not actually be due to a loss of repressive effect, but may instead be an artefact of the lower overall range of TPM values.
 Notably, Skeletal Muscle was also seen with elements having their repressive effects reversed.
-Both of these tissues had the highest proportions overall of undetecable genes (Table \ref{tab:notExp}).
+Both of these tissues had the highest proportions overall of undetectable genes (Table \ref{tab:notExp}).
 An alternative way to investigate this would be to fit each tissue separately.\\
 
 It should also be noted than in the prior bootstrapping approach, the median expression value was used for calculations, which included not-expressed amongst the expressed values.
-The negative binomial approach effectively separates the not-expressed and the expressed genes, in an somewhat analagous method to the k-means approach.
+The negative binomial approach effectively separates the not-expressed and the expressed genes, in an somewhat analogous method to the k-means approach.
 The increase in probability of detection, coupled with a repressive effect for many TEs does appear to be somewhat contradictory, at least on the surface.
 The superiority of one approach over the other is not immediately clear.
 
@@ -458,8 +459,8 @@ zeroConfInt <- names(singleTissueNBFits) %>%
 As seen in Figure \ref{fig:plotZeroConfInt}:
 \begin{itemize}
   \item alu elements consistently increased the probability of being expressed across all tissues
-  \item L1 elements were inconsisent in their effects, with a potential bias towards genes not being expressed, most strongly observed in Skeletal Muscle
-  \item L2 elements showed evidence of an increased probability of expression in Skeletal Muscle, Kidney and Brain. A similar bias was also seen in the other tissues, whilst not formally acheiving significance
+  \item L1 elements were inconsistent in their effects, with a potential bias towards genes not being expressed, most strongly observed in Skeletal Muscle
+  \item L2 elements showed evidence of an increased probability of expression in Skeletal Muscle, Kidney and Brain. A similar bias was also seen in the other tissues, whilst not formally achieving significance
   \item LTR elements showed evidence of a reduced probability of expression in Skeletal Muscle only, however this negative bias was also evident in all other tissues.
   \item mir elements were also inconclusive with respect to the probability of being expressed
 \end{itemize}
@@ -503,26 +504,26 @@ countConfInt %>%
                  height = 0.7) +
   geom_vline(x = 0, colour = "grey50", linetype=2) +
   theme_bw() +
-  labs(x = "Change on expression from baseline", 
+  labs(x = "Change in expression from baseline", 
        y = "Tissue") + 
   facet_wrap(~TE, scales = "free_x", nrow = 3) 
 @
 
 Bonferroni-adjusted confidence intervals were then generated for the effects of each TE on the overall levels of expression (Figure \ref{fig:plotCountConfInt}).
 \begin{itemize}
-  \item alu elements showed a bias towards upregulation in Adipose Tissue, Kidney, Liver and Testes, although this was clearly not significant. 
+  \item alu elements showed a bias towards up-regulation in Adipose Tissue, Kidney, Liver and Testes, although this was clearly not significant. 
   In Brain and Skeletal Muscle, this effect was clearly in the opposite direction, with this bias towards inhibition of expression being statistically significant in Brain Tissue only.
   \item L1 elements showed a significant inhibitory influence in all tissues except Liver, were they showed exhibited a strong positive influence on expression.
   \item L2 elements showed a negative bias only in Adipose Tissue and Testes, with a significant inhibitory effect in Brain, Kidney and Skeletal Muscle.
   In Liver, this effect was reverse and L2 elements appeared to have a positive impact on gene expression
   \item LTR elements were significantly inhibitory in all tissues except Liver and Skeletal Muscle, where they had no discernible influence at all.
-  \item mir elements also had a significant inhibitory influene in all tissues except Liver, where they appeared to have a positive influence on gene expression.
+  \item mir elements also had a significant inhibitory influence in all tissues except Liver, where they appeared to have a positive influence on gene expression.
 \end{itemize}
 
 These elements consistently showed differing impacts on gene expression in Liver, which was somewhat surprising.
 However, given the lower overall expression levels observed in Figure \ref{fig:plotTissues} this may be an artefact of the different structure of this data.
 All model parameters not directly related to TEs showed this different behaviour as well (Table \ref{tab:modelParams}).
-In this table, all parameter estimates for liver had noticably higher standard errors, and the overdispersion parameter $\theta$ was also considerably lower, indicating greater overdispersion.
+In this table, all parameter estimates for liver had noticeably higher standard errors, and the over-dispersion parameter $\theta$ was also considerably lower, indicating greater over-dispersion.
 Similarly, the effects of gene length (taken on the log scale) were that longer genes showed a greater level of reduced expression in this tissue.
 Whether this was a biological phenomenon or a technical artefact is unclear.
 
@@ -547,7 +548,7 @@ singleTissueNBFits %>%
 
 \subsubsection{Brief Comments}
 It must be restated that the above analysis was on gene with either a single element, or no elements.
-This represents less than 20\% of the occurences of each element (Table \ref{tab:singleTEs}), and may be highly unrepresentative on a genome-wide scale.
+This represents less than 20\% of the occurrences of each element (Table \ref{tab:singleTEs}), and may be highly unrepresentative on a genome-wide scale.
 <<sampSize, echo=FALSE, include=TRUE, results='asis'>>=
 singleData %>% 
   distinct(ID) %>% 
@@ -571,75 +572,183 @@ By using the hurdle approach, any zero-values for TPM were effectively removed f
 
 
 \FloatBarrier
-\section{Preparation for Using the Boostrap Approach}
-As noted above, the excessive overdispersion observed in the Liver sample may have had an impact of the model fitting stages.
-As an alternative to this approach, the sets of genes with a single element were boostrapped against those genes with no elements, in a Tissue specific manner.
+\section{Single Elements Using the Bootstrap Approach}
+As noted above, the excessive over-dispersion observed in the Liver sample may have had an impact of the model fitting stages.
+As an alternative to this approach, the sets of genes with a single element were bootstrapped against those genes with no elements, in a Tissue specific manner using length as the binning variable, as with the previous approach.
+<<lengthBins>>=
+nBins <- 10
+lengthBins <- quantile(tpmData$length, probs = seq(0, 1, length.out = nBins + 1))
+tpmData <- mutate(tpmData, 
+                  lengthBin = findInterval(length, lengthBins, rightmost.closed=TRUE))
+@
 
 
-% <<blah, eval=FALSE, echo=FALSE>>=
-% tissues %>%
-%   capwords %>%
-%   sapply(function(x){singleTissueNBFits[[x]]$coefficients$zero})
-% @
-% 
-% 
-% Prior to fitting, however, the zero-inflation model was fitted across al tissues as a spearate logistic regression model.
-% Prediction intervals for the probability of expression for each element type were generated across tissues, using a hypothetical gene of length 2.7kb, which is close to the median gene length observed in the data.
-% 
-% <<alLogit>>=
-% allLogit <- glm(as.logical(rawTPM) ~ 0+ Tissue*TEtype + Tissue*log(length), data = singleData, family=binomial)
-% @
-% 
-% <<predInt>>=
-% newData <- data_frame(Tissue = rep(capwords(tissues), each=length(elements$type)+1),
-%                       TEtype = rep(c("none", elements$type), times = length(tissues)),
-%                       length = 2700)
-% critVal <- abs(qnorm(0.05/nrow(newData)))
-% preds <- predict(allLogit, newdata = newData, se.fit = TRUE)[1:2] %>%
-%   as.data.frame %>%
-%   bind_cols(newData) %>%
-%   select(Tissue, TEtype, fit, se.fit) %>%
-%   mutate(prob = inv.logit(fit),
-%          lower = inv.logit(fit - critVal*se.fit),
-%          upper = inv.logit(fit + critVal*se.fit))
-% @
-% 
-% <<plotPredInt>>=
-% preds %>% 
-%   ggplot(aes(x = prob, y = TEtype)) +
-%   geom_point() +
-%   geom_errorbarh(aes(xmin = lower, xmax = upper)) + 
-%   theme_bw() +
-%   facet_wrap(~Tissue, scales = "free_x")
-% @
-% 
-% 
-% 
-% 
-% 
-% 
-% The main thing I noticed in the above is that the impact of length varies between tissues.
-% Does this make biological sense, or is it an artefact of the different TPM distributions across tissues? \\
-% \\
-% Re-fitting the model incorporating this possibility gives a better model, as determined by a likelihood ratio test
-% <<reFit, cache=TRUE>>=
-% fitSingleElementsLengthInt <- hurdle(rawTPM ~ 0 + Tissue*TEtype + log(length)*Tissue | 
-%                                    0 + Tissue + TEtype + log(length),
-%                                data = singleData, dist = "negbin")
-% lrtest(fitSingleElementsLengthInt , fitSingleElementsNoInt )
-% @
-% 
-% Inspection of the cofficients for this model no revealed the Liver \& Skeletal Muscle effects for each TE were significantly different, implying this may possibly be due to the tissue specific TPM distributions.
-% 
-% \section{Analysis using a bootstrap approach}
-% Given these findings above, we need to explore using a bootstrap, but this time we can exclude the not expressed genes and use the mean logTPM values.
-% That should actually be quite interesting....
-% 
-% 
-% <<save, eval = FALSE>>=
-% save.image("TEsWithZINBFits.RData")
-% @
-% 
+\subsection{Alu Elements in Isolation}
+The genes with alu elements in isolation, were bootstrapped against the genes with no elements, binning the genes based on their length.
+<<bootSingleAlu, cache = TRUE>>=
+bootSingleAlu <- mclapply(tissues, bootMeans, 
+                          data = tpmData, 
+                          testIds = filter(tpmData, alu, !L1, !L2, !LTR, !mir)$ID, 
+                          refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
+                          nBoot = 1000L, 
+                          nGenes = 1000L)
+names(bootSingleAlu) <- tissues
+@
+
+<<plotBootAluOnly, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in isolation when compared to genes with no TEs.">>=
+vapply(bootSingleAlu, function(x){x$samples}, numeric(1000)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+As seen in Figure \ref{fig:plotBootAluOnly}, Adipose Tissue and Testes agree with the previous analysis using a negative binomial (Figure \ref{fig:plotCountConfInt}), whilst Skeletal muscle obtained the completely opposite result.
+Brain tissue was inconclusive, whilst showing clear down-regulation under the negative binomial model.
+Kidney and Liver were directionally consistent with the NB approach, although significance was clearly observed under the bootstrap approach.
+
+\subsection{L1 Elements in Isolation}
+The genes with L1 elements in isolation, were bootstrapped against the genes with no elements, binning the genes based on their length.
+<<bootSingleL1, cache = TRUE>>=
+bootSingleL1 <- mclapply(tissues, bootMeans, 
+                          data = tpmData, 
+                          testIds = filter(tpmData, !alu, L1, !L2, !LTR, !mir)$ID, 
+                          refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
+                          nBoot = 1000L, 
+                          nGenes = 1000L)
+names(bootSingleL1) <- tissues
+@
+
+<<plotBootL1Only, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L1 elements in isolation when compared to genes with no TEs.">>=
+vapply(bootSingleL1, function(x){x$samples}, numeric(1000)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+As seen in Figure \ref{fig:plotBootL1Only}, most of the results agree with the previous analysis using a negative binomial (\ref{fig:plotCountConfInt}), with a clear negative effect on gene expression.
+The previously observed up-regulation in Brain Tissue, was not seen under this approach however, and the results for Testes were less statistically significant.
+
+\subsection{L2 Elements in Isolation}
+The genes with L2 elements in isolation, were bootstrapped against the genes with no elements, binning the genes based on their length.
+<<bootSingleL2, cache = TRUE>>=
+bootSingleL2 <- mclapply(tissues, bootMeans, 
+                          data = tpmData, 
+                          testIds = filter(tpmData, !alu, !L1, L2, !LTR, !mir)$ID, 
+                          refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
+                          nBoot = 1000L, 
+                          nGenes = 1000L)
+names(bootSingleL2) <- tissues
+@
+
+<<plotBootL2Only, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L2 elements in isolation when compared to genes with no TEs.">>=
+vapply(bootSingleL2, function(x){x$samples}, numeric(1000)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+As seen in Figure \ref{fig:plotBootL2Only}, no significant difference in the means was observed, as compared with the previous analysis using a negative binomial (\ref{fig:plotCountConfInt}), where these elements showed significant down-regulation in Brain, Kidney and Skeletal Muscle, and up-regulation in Liver
+
+\subsection{LTR Elements in Isolation}
+The genes with LTR elements in isolation, were bootstrapped against the genes with no elements, binning the genes based on their length.
+<<bootSingleLTR, cache = TRUE>>=
+bootSingleLTR <- mclapply(tissues, bootMeans, 
+                          data = tpmData, 
+                          testIds = filter(tpmData, !alu, !L1, !L2, LTR, !mir)$ID, 
+                          refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
+                          nBoot = 1000L, 
+                          nGenes = 1000L)
+names(bootSingleLTR) <- tissues
+@
+
+<<plotBootLTROnly, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with LTR elements in isolation when compared to genes with no TEs.">>=
+vapply(bootSingleLTR, function(x){x$samples}, numeric(1000)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+As seen in Figure \ref{fig:plotBootLTROnly}, the results were broadly consistent when compared with the previous analysis using a negative binomial (\ref{fig:plotCountConfInt}).
+Most Tissues showed significant down-regulation, however the previously observed lack of down-regulation in Liver and Skeletal Muscle was once again evident.
+
+\subsection{mir Elements in Isolation}
+The genes with mir elements in isolation, were bootstrapped against the genes with no elements, binning the genes based on their length.
+<<bootSingleMir, cache = TRUE>>=
+bootSingleMir <- mclapply(tissues, bootMeans, 
+                          data = tpmData, 
+                          testIds = filter(tpmData, !alu, !L1, !L2, !LTR, mir)$ID, 
+                          refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
+                          nBoot = 1000L, 
+                          nGenes = 1000L)
+names(bootSingleMir) <- tissues
+@
+
+<<plotBootmirOnly, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with mir elements in isolation when compared to genes with no TEs.">>=
+vapply(bootSingleMir, function(x){x$samples}, numeric(1000)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+As seen in Figure \ref{fig:plotBootmirOnly}, no tissues except for Testes showed any significant effects due to the presence of mir elements, as compared with the previous analysis using a negative binomial (Figure \ref{fig:plotCountConfInt}), where significant down-regulation was observed in all tissues except Liver.
+
+\subsection{Summary of Result for Single Elements}
+
+<<allSingleBoot, echo=FALSE, include=TRUE, results='asis'>>=
+vapply(bootSingleAlu, function(x){x$p}, numeric(1)) %>%
+  as.data.frame() %>%
+  add_rownames("Tissue") %>%
+  select(Tissue, alu = contains(".")) %>%
+  mutate(Tissue = capwords(Tissue),
+         L1 = vapply(bootSingleL1, function(x){x$p}, numeric(1)),
+         L2 = vapply(bootSingleL2, function(x){x$p}, numeric(1)),
+         LTR = vapply(bootSingleLTR, function(x){x$p}, numeric(1)),
+         mir = vapply(bootSingleMir, function(x){x$p}, numeric(1))) %>%
+  xtable(digits = 3,
+         caption = "Boostrapped p-values for Elements acting in isolation for each tissue type",
+         align = "llrrrrr",
+         label = "tab:allSingleBoot") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+
+
+<<save, eval = FALSE>>=
+save.image("TEsWithZINBFits.RData")
+@
+
 
 
 
