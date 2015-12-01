@@ -496,7 +496,7 @@ countConfInt <- names(singleTissueNBFits) %>%
          upper = Estimate + critVal*se)
 @
 
-<<plotCountConfInt, echo=FALSE, fig.height=6, fig.cap="95\\% Confidence Intervals on the logit scale for the tissue-specific effects on the probability of expression. All values are in comparison to the tissue sepcific baseline probability of expression for genes with no TEs, and all intervals used a Bonferroni-adjusted critical value. The zero-line, indicative of no effect is shown as a dotted grey line.">>=
+<<plotCountConfInt, echo=FALSE, fig.height=6, fig.cap="95\\% Confidence Intervals for the tissue-specific effects on the rates of expression counts. All values are in comparison to the tissue sepcific baseline rate of expression for genes with no TEs, and all intervals used a Bonferroni-adjusted critical value. The zero-line, indicative of no effect is shown as a dotted grey line.">>=
 countConfInt %>%
   ggplot(aes(x = Estimate, y = Tissue)) +
   geom_point(size = 3) +
@@ -557,14 +557,17 @@ This is a parametric model and relies on behaviour that can be well modelled by 
 
 \FloatBarrier
 \section{Single Elements Using the Bootstrap Approach}
-As noted above, the excessive over-dispersion observed in the Liver sample may have had an impact of the model fitting stages.
-As an alternative to this approach, the sets of genes with a single element were bootstrapped against those genes with no elements, in a Tissue specific manner using length as the binning variable, as with the previous approach.
 <<lengthBins>>=
 nBins <- 10
+nBoot <- 10000L
 lengthBins <- quantile(tpmData$length, probs = seq(0, 1, length.out = nBins + 1))
 tpmData <- mutate(tpmData, 
                   lengthBin = findInterval(length, lengthBins, rightmost.closed=TRUE))
 @
+
+As noted above, the excessive over-dispersion observed in the Liver sample may have had an impact of the model fitting stages.
+As an alternative to this approach, the sets of genes with a single element were bootstrapped against those genes with no elements, in a Tissue specific manner using length as the binning variable, as with the previous approach.
+Each dataset was bootstrapped \Sexpr{nBoot} times.
 
 <<plotTissueTPM, fig.height=4, fig.cap="Comparison of TPM distributions based on presence of a single TE. TPM values are shown on the log scale, with non-expressed genes removed.">>=
 singleData %>% 
@@ -585,13 +588,13 @@ bootSingleAlu <- mclapply(tissues, bootMeans,
                           data = tpmData, 
                           testIds = filter(tpmData, alu, !L1, !L2, !LTR, !mir)$ID, 
                           refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
-                          nBoot = 1000L, 
+                          nBoot = nBoot, 
                           nGenes = 1000L)
 names(bootSingleAlu) <- tissues
 @
 
 <<plotBootAluOnly, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in isolation when compared to genes with no TEs.">>=
-vapply(bootSingleAlu, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootSingleAlu, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -614,13 +617,13 @@ bootSingleL1 <- mclapply(tissues, bootMeans,
                           data = tpmData, 
                           testIds = filter(tpmData, !alu, L1, !L2, !LTR, !mir)$ID, 
                           refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
-                          nBoot = 1000L, 
+                          nBoot = nBoot, 
                           nGenes = 1000L)
 names(bootSingleL1) <- tissues
 @
 
 <<plotBootL1Only, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L1 elements in isolation when compared to genes with no TEs.">>=
-vapply(bootSingleL1, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootSingleL1, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -642,13 +645,13 @@ bootSingleL2 <- mclapply(tissues, bootMeans,
                           data = tpmData, 
                           testIds = filter(tpmData, !alu, !L1, L2, !LTR, !mir)$ID, 
                           refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
-                          nBoot = 1000L, 
+                          nBoot = nBoot, 
                           nGenes = 1000L)
 names(bootSingleL2) <- tissues
 @
 
 <<plotBootL2Only, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L2 elements in isolation when compared to genes with no TEs.">>=
-vapply(bootSingleL2, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootSingleL2, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -669,13 +672,13 @@ bootSingleLTR <- mclapply(tissues, bootMeans,
                           data = tpmData, 
                           testIds = filter(tpmData, !alu, !L1, !L2, LTR, !mir)$ID, 
                           refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
-                          nBoot = 1000L, 
+                          nBoot = nBoot, 
                           nGenes = 1000L)
 names(bootSingleLTR) <- tissues
 @
 
 <<plotBootLTROnly, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with LTR elements in isolation when compared to genes with no TEs.">>=
-vapply(bootSingleLTR, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootSingleLTR, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -697,13 +700,13 @@ bootSingleMir <- mclapply(tissues, bootMeans,
                           data = tpmData, 
                           testIds = filter(tpmData, !alu, !L1, !L2, !LTR, mir)$ID, 
                           refIds = filter(tpmData, !alu, !L1, !L2, !LTR, !mir)$ID,
-                          nBoot = 1000L, 
+                          nBoot = nBoot, 
                           nGenes = 1000L)
 names(bootSingleMir) <- tissues
 @
 
 <<plotBootMirOnly, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with mir elements in isolation when compared to genes with no TEs.">>=
-vapply(bootSingleMir, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootSingleMir, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -729,7 +732,7 @@ vapply(bootSingleAlu, function(x){x$p}, numeric(1)) %>%
          L2 = vapply(bootSingleL2, function(x){x$p}, numeric(1)),
          LTR = vapply(bootSingleLTR, function(x){x$p}, numeric(1)),
          mir = vapply(bootSingleMir, function(x){x$p}, numeric(1))) %>%
-  xtable(digits = 3,
+  xtable(digits = 4,
          caption = "Bootstrapped p-values for Elements acting in isolation for each tissue type",
          align = "llrrrrr",
          label = "tab:allSingleBoot") %>%
@@ -772,13 +775,13 @@ bootAluPlusOne <- mclapply(tissues, bootMeans,
                            testIds = filter(aluPlusOneData, alu)$ID, 
                            refIds = filter(aluPlusOneData, !alu)$ID,
                            binCol = "elBins",
-                           nBoot = 1000L, 
+                           nBoot = nBoot, 
                            nGenes = 1000L)
 names(bootAluPlusOne) <- tissues
 @
 
 <<plotAluPlusOne, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in isolation when compared to genes with no TEs.">>=
-vapply(bootAluPlusOne, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootAluPlusOne, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -824,13 +827,13 @@ bootL1PlusOne <- mclapply(tissues, bootMeans,
                            testIds = filter(L1PlusOneData, L1)$ID, 
                            refIds = filter(L1PlusOneData, !L1)$ID,
                            binCol = "elBins",
-                           nBoot = 1000L, 
+                           nBoot = nBoot, 
                            nGenes = 1000L)
 names(bootL1PlusOne) <- tissues
 @
 
 <<plotL1PlusOne, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L1 elements in isolation when compared to genes with no TEs.">>=
-vapply(bootL1PlusOne, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootL1PlusOne, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -876,13 +879,13 @@ bootL2PlusOne <- mclapply(tissues, bootMeans,
                            testIds = filter(L2PlusOneData, L2)$ID, 
                            refIds = filter(L2PlusOneData, !L2)$ID,
                            binCol = "elBins",
-                           nBoot = 1000L, 
+                           nBoot = nBoot, 
                            nGenes = 1000L)
 names(bootL2PlusOne) <- tissues
 @
 
 <<plotL2PlusOne, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L2 elements in isolation when compared to genes with no TEs.">>=
-vapply(bootL2PlusOne, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootL2PlusOne, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -928,13 +931,13 @@ bootLTRPlusOne <- mclapply(tissues, bootMeans,
                            testIds = filter(LTRPlusOneData, LTR)$ID, 
                            refIds = filter(LTRPlusOneData, !LTR)$ID,
                            binCol = "elBins",
-                           nBoot = 1000L, 
+                           nBoot = nBoot, 
                            nGenes = 1000L)
 names(bootLTRPlusOne) <- tissues
 @
 
 <<plotLTRPlusOne, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with LTR elements in isolation when compared to genes with no TEs.">>=
-vapply(bootLTRPlusOne, function(x){x$samples}, numeric(1000)) %>%
+vapply(bootLTRPlusOne, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -980,13 +983,13 @@ bootMirPlusOne <- mclapply(tissues, bootMeans,
                            testIds = filter(mirPlusOneData, mir)$ID, 
                            refIds = filter(mirPlusOneData, !mir)$ID,
                            binCol = "elBins",
-                           nBoot = 1000L, 
+                           nBoot = nBoot, 
                            nGenes = 1000L)
 names(bootMirPlusOne) <- tissues
 @
 
-<<plotMirPlusOne, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L1 elements in isolation when compared to genes with no TEs.">>=
-vapply(bootMirPlusOne, function(x){x$samples}, numeric(1000)) %>%
+<<plotMirPlusOne, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with mir elements in isolation when compared to genes with no TEs.">>=
+vapply(bootMirPlusOne, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
          Tissue = capwords(Tissue)) %>%
@@ -1014,7 +1017,7 @@ vapply(bootAluPlusOne, function(x){x$p}, numeric(1)) %>%
          L2 = vapply(bootL2PlusOne, function(x){x$p}, numeric(1)),
          LTR = vapply(bootLTRPlusOne, function(x){x$p}, numeric(1)),
          mir = vapply(bootMirPlusOne, function(x){x$p}, numeric(1))) %>%
-  xtable(digits = 3,
+  xtable(digits = 4,
          caption = "Bootstrapped p-values for Elements acting in the presence of up to one additional element",
          align = "llrrrrr",
          label = "tab:allPlusOneBoot") %>%
@@ -1024,10 +1027,939 @@ vapply(bootAluPlusOne, function(x){x$p}, numeric(1)) %>%
 
 
 \FloatBarrier
+
+\section{Elements in the Presence of Up To Two Additional Elements}
+The impacts on the addition of one accompanying element were then investigated to increase the sample size \& gain a clearer picture of the wider genome.\\
+
+\subsection{Alu Elements In the presence of Up To Two Additional Elements}
+<<aluPlusTwoData>>=
+aluPlusTwoData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("alu", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_", elBins))
+countsAluPlusTwo <- count(aluPlusTwoData, alu, elBins) %>% 
+  dcast(elBins~alu, value.var = "n") 
+@
+
+<<xtabAluPlusTwoData, echo=FALSE, include=TRUE, results='asis'>>=
+countsAluPlusTwo %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an alu` = `FALSE`, 
+         `Genes with an alu` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for alu elements, allowing up to one extra element.",
+         label = "tab:aluPlusTwo",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootAluPlusTwo, cache=TRUE>>=
+bootAluPlusTwo <- mclapply(tissues, bootMeans, 
+                           data = aluPlusTwoData, 
+                           testIds = filter(aluPlusTwoData, alu)$ID, 
+                           refIds = filter(aluPlusTwoData, !alu)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L)
+names(bootAluPlusTwo) <- tissues
+@
+
+<<plotAluPlusTwo, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in isolation when compared to genes with no TEs.">>=
+vapply(bootAluPlusTwo, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:aluPlusTwo}, and the results of the bootstrapping procedure (Figure \ref{fig:plotAluPlusTwo}) are highly consistent with those from alu elements acting in isolation (Figure \ref{fig:plotBootAluOnly}).
+
+\subsection{L1 Elements In the presence of Up To Two Additional Elements}
+<<L1PlusTwoData, message=FALSE>>=
+L1PlusTwoData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("L1", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_", elBins))
+countsL1PlusTwo <- count(L1PlusTwoData, L1, elBins) %>% 
+  dcast(elBins~L1, value.var = "n") 
+@
+
+<<xtabL1PlusTwoData, echo=FALSE, include=TRUE, results='asis'>>=
+countsL1PlusTwo %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an L1` = `FALSE`, 
+         `Genes with an L1` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for L1 elements, allowing up to one extra element.",
+         label = "tab:L1PlusTwo",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootL1PlusTwo, cache=TRUE>>=
+bootL1PlusTwo <- mclapply(tissues, bootMeans, 
+                           data = L1PlusTwoData, 
+                           testIds = filter(L1PlusTwoData, L1)$ID, 
+                           refIds = filter(L1PlusTwoData, !L1)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L)
+names(bootL1PlusTwo) <- tissues
+@
+
+<<plotL1PlusTwo, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L1 elements in isolation when compared to genes with no TEs.">>=
+vapply(bootL1PlusTwo, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:L1PlusTwo}, and the results of the bootstrapping procedure (Figure \ref{fig:plotL1PlusTwo}) are highly consistent with those from L1 elements acting in isolation (Figure \ref{fig:plotBootL1Only}).
+
+\subsection{L2 Elements In the presence of Up To Two Additional Elements}
+<<L2PlusTwoData, message=FALSE>>=
+L2PlusTwoData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("L2", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_", elBins))
+countsL2PlusTwo <- count(L2PlusTwoData, L2, elBins) %>% 
+  dcast(elBins~L2, value.var = "n") 
+@
+
+<<xtabL2PlusTwoData, echo=FALSE, include=TRUE, results='asis'>>=
+countsL2PlusTwo %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an L2` = `FALSE`, 
+         `Genes with an L2` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for L2 elements, allowing up to one extra element.",
+         label = "tab:L2PlusTwo",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootL2PlusTwo, cache=TRUE>>=
+bootL2PlusTwo <- mclapply(tissues, bootMeans, 
+                           data = L2PlusTwoData, 
+                           testIds = filter(L2PlusTwoData, L2)$ID, 
+                           refIds = filter(L2PlusTwoData, !L2)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L)
+names(bootL2PlusTwo) <- tissues
+@
+
+<<plotL2PlusTwo, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L2 elements in isolation when compared to genes with no TEs.">>=
+vapply(bootL2PlusTwo, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:L2PlusTwo}, and the results of the bootstrapping procedure (Figure \ref{fig:plotL2PlusTwo}) are highly consistent with those from L2 elements acting in isolation (Figure \ref{fig:plotBootL2Only}).
+
+\subsection{LTR Elements In the presence of Up To Two Additional Elements}
+<<LTRPlusTwoData, message=FALSE>>=
+LTRPlusTwoData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("LTR", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_", elBins))
+countsLTRPlusTwo <- count(LTRPlusTwoData, LTR, elBins) %>% 
+  dcast(elBins~LTR, value.var = "n") 
+@
+
+<<xtabLTRPlusTwoData, echo=FALSE, include=TRUE, results='asis'>>=
+countsLTRPlusTwo %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an LTR` = `FALSE`, 
+         `Genes with an LTR` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for LTR elements, allowing up to one extra element.",
+         label = "tab:LTRPlusTwo",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootLTRPlusTwo, cache=TRUE>>=
+bootLTRPlusTwo <- mclapply(tissues, bootMeans, 
+                           data = LTRPlusTwoData, 
+                           testIds = filter(LTRPlusTwoData, LTR)$ID, 
+                           refIds = filter(LTRPlusTwoData, !LTR)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L)
+names(bootLTRPlusTwo) <- tissues
+@
+
+<<plotLTRPlusTwo, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with LTR elements in isolation when compared to genes with no TEs.">>=
+vapply(bootLTRPlusTwo, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:LTRPlusTwo}, and the results of the bootstrapping procedure (Figure \ref{fig:plotLTRPlusTwo}) are highly consistent with those from LTR elements acting in isolation (Figure \ref{fig:plotBootLTROnly}).
+
+\subsection{mir Elements In the presence of Up To Two Additional Elements}
+<<mirPlusTwoData, message=FALSE>>=
+mirPlusTwoData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("mir", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_", elBins))
+countsMirPlusTwo <- count(mirPlusTwoData, mir, elBins) %>% 
+  dcast(elBins~mir, value.var = "n") 
+@
+
+<<xtabMirPlusTwoData, echo=FALSE, include=TRUE, results='asis'>>=
+countsMirPlusTwo %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without a mir` = `FALSE`, 
+         `Genes with a mir` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for mir elements, allowing up to one extra element.",
+         label = "tab:mirPlusTwo",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootMirPlusTwo, cache=TRUE>>=
+bootMirPlusTwo <- mclapply(tissues, bootMeans, 
+                           data = mirPlusTwoData, 
+                           testIds = filter(mirPlusTwoData, mir)$ID, 
+                           refIds = filter(mirPlusTwoData, !mir)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L)
+names(bootMirPlusTwo) <- tissues
+@
+
+<<plotMirPlusTwo, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with mir elements in isolation when compared to genes with no TEs.">>=
+vapply(bootMirPlusTwo, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:mirPlusTwo}, and the results of the bootstrapping procedure (Figure \ref{fig:plotMirPlusTwo}) are highly consistent with those from mir elements acting in isolation (Figure \ref{fig:plotBootMirOnly}).
+
+\subsection{Summary of Results for Up To Two Additional Elements}
+
+The ressult from the above bootstrapping procedures are summarised in Table \ref{tab:allPlusTwoBoot}, and these values are directly comparable with those in Table \ref{tab:allSingleBoot}.
+
+<<allPlusTwoBoot, echo=FALSE, include=TRUE, results='asis'>>=
+vapply(bootAluPlusTwo, function(x){x$p}, numeric(1)) %>%
+  as.data.frame() %>%
+  add_rownames("Tissue") %>%
+  select(Tissue, alu = contains(".")) %>%
+  mutate(Tissue = capwords(Tissue),
+         L1 = vapply(bootL1PlusTwo, function(x){x$p}, numeric(1)),
+         L2 = vapply(bootL2PlusTwo, function(x){x$p}, numeric(1)),
+         LTR = vapply(bootLTRPlusTwo, function(x){x$p}, numeric(1)),
+         mir = vapply(bootMirPlusTwo, function(x){x$p}, numeric(1))) %>%
+  xtable(digits = 4,
+         caption = "Bootstrapped p-values for Elements acting in the presence of up To Two Additional Elements",
+         align = "llrrrrr",
+         label = "tab:allPlusTwoBoot") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+\FloatBarrier
+
+\section{Elements in the Presence of Up To Three Additional Elements}
+The impacts on the addition of one accompanying element were then investigated to increase the sample size \& gain a clearer picture of the wider genome.\\
+
+\subsection{Alu Elements In the presence of Up To Three Additional Elements}
+<<aluPlusThreeData>>=
+aluPlusThreeData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("alu", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_.+_", elBins))
+countsAluPlusThree <- count(aluPlusThreeData, alu, elBins) %>% 
+  dcast(elBins~alu, value.var = "n") 
+@
+
+<<xtabAluPlusThreeData, echo=FALSE, include=TRUE, results='asis'>>=
+countsAluPlusThree %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an alu` = `FALSE`, 
+         `Genes with an alu` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for alu elements, allowing up to one extra element.",
+         label = "tab:aluPlusThree",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootAluPlusThree, cache=TRUE>>=
+bootAluPlusThree <- mclapply(tissues, bootMeans, 
+                           data = aluPlusThreeData, 
+                           testIds = filter(aluPlusThreeData, alu)$ID, 
+                           refIds = filter(aluPlusThreeData, !alu)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L,
+                           maxP = 0.01)
+names(bootAluPlusThree) <- tissues
+@
+
+<<plotAluPlusThree, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in combination with other elements compared to genes with up to three TEs.">>=
+vapply(bootAluPlusThree, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:aluPlusThree}, and the results of the bootstrapping procedure (Figure \ref{fig:plotAluPlusThree}) are highly consistent with those from alu elements acting in isolation (Figure \ref{fig:plotBootAluOnly}).
+
+\subsection{L1 Elements In the presence of Up To Three Additional Elements}
+<<L1PlusThreeData, message=FALSE>>=
+L1PlusThreeData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("L1", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_.+_", elBins))
+countsL1PlusThree <- count(L1PlusThreeData, L1, elBins) %>% 
+  dcast(elBins~L1, value.var = "n") 
+@
+
+<<xtabL1PlusThreeData, echo=FALSE, include=TRUE, results='asis'>>=
+countsL1PlusThree %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an L1` = `FALSE`, 
+         `Genes with an L1` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for L1 elements, allowing up to one extra element.",
+         label = "tab:L1PlusThree",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootL1PlusThree, cache=TRUE>>=
+bootL1PlusThree <- mclapply(tissues, bootMeans, 
+                           data = L1PlusThreeData, 
+                           testIds = filter(L1PlusThreeData, L1)$ID, 
+                           refIds = filter(L1PlusThreeData, !L1)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L,
+                           maxP = 0.01)
+names(bootL1PlusThree) <- tissues
+@
+
+<<plotL1PlusThree, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L1 elements in combination with other elements compared to genes with up to three TEs.">>=
+vapply(bootL1PlusThree, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:L1PlusThree}, and the results of the bootstrapping procedure (Figure \ref{fig:plotL1PlusThree}) are highly consistent with those from L1 elements acting in isolation (Figure \ref{fig:plotBootL1Only}).
+
+\subsection{L2 Elements In the presence of Up To Three Additional Elements}
+<<L2PlusThreeData, message=FALSE>>=
+L2PlusThreeData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("L2", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_.+_", elBins))
+countsL2PlusThree <- count(L2PlusThreeData, L2, elBins) %>% 
+  dcast(elBins~L2, value.var = "n") 
+@
+
+<<xtabL2PlusThreeData, echo=FALSE, include=TRUE, results='asis'>>=
+countsL2PlusThree %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an L2` = `FALSE`, 
+         `Genes with an L2` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for L2 elements, allowing up to one extra element.",
+         label = "tab:L2PlusThree",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootL2PlusThree, cache=TRUE>>=
+bootL2PlusThree <- mclapply(tissues, bootMeans, 
+                           data = L2PlusThreeData, 
+                           testIds = filter(L2PlusThreeData, L2)$ID, 
+                           refIds = filter(L2PlusThreeData, !L2)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L,
+                           maxP = 0.01)
+names(bootL2PlusThree) <- tissues
+@
+
+<<plotL2PlusThree, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with L2 elements in combination with other elements compared to genes with up to three TEs.">>=
+vapply(bootL2PlusThree, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:L2PlusThree}, and the results of the bootstrapping procedure (Figure \ref{fig:plotL2PlusThree}) are highly consistent with those from L2 elements acting in isolation (Figure \ref{fig:plotBootL2Only}).
+
+\subsection{LTR Elements In the presence of Up To Three Additional Elements}
+<<LTRPlusThreeData, message=FALSE>>=
+LTRPlusThreeData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("LTR", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_.+_", elBins))
+countsLTRPlusThree <- count(LTRPlusThreeData, LTR, elBins) %>% 
+  dcast(elBins~LTR, value.var = "n") 
+@
+
+<<xtabLTRPlusThreeData, echo=FALSE, include=TRUE, results='asis'>>=
+countsLTRPlusThree %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an LTR` = `FALSE`, 
+         `Genes with an LTR` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for LTR elements, allowing up to one extra element.",
+         label = "tab:LTRPlusThree",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootLTRPlusThree, cache=TRUE>>=
+bootLTRPlusThree <- mclapply(tissues, bootMeans, 
+                           data = LTRPlusThreeData, 
+                           testIds = filter(LTRPlusThreeData, LTR)$ID, 
+                           refIds = filter(LTRPlusThreeData, !LTR)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L,
+                           maxP = 0.01)
+names(bootLTRPlusThree) <- tissues
+@
+
+<<plotLTRPlusThree, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with LTR elements in combination with other elements compared to genes with up to three TEs.">>=
+vapply(bootLTRPlusThree, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:LTRPlusThree}, and the results of the bootstrapping procedure (Figure \ref{fig:plotLTRPlusThree}) are highly consistent with those from LTR elements acting in isolation (Figure \ref{fig:plotBootLTROnly}).
+
+\subsection{mir Elements In the presence of Up To Three Additional Elements}
+<<mirPlusThreeData, message=FALSE>>=
+mirPlusThreeData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("mir", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  select(-contains("IDs")) %>%
+  filter(!grepl("_.+_.+_", elBins))
+countsMirPlusThree <- count(mirPlusThreeData, mir, elBins) %>% 
+  dcast(elBins~mir, value.var = "n") 
+@
+
+<<xtabMirPlusThreeData, echo=FALSE, include=TRUE, results='asis'>>=
+countsMirPlusThree %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without a mir` = `FALSE`, 
+         `Genes with a mir` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for mir elements, allowing up to one extra element.",
+         label = "tab:mirPlusThree",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootMirPlusThree, cache=TRUE>>=
+bootMirPlusThree <- mclapply(tissues, bootMeans, 
+                           data = mirPlusThreeData, 
+                           testIds = filter(mirPlusThreeData, mir)$ID, 
+                           refIds = filter(mirPlusThreeData, !mir)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L,
+                           maxP = 0.01)
+names(bootMirPlusThree) <- tissues
+@
+
+<<plotMirPlusThree, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with mir elements in combination with other elements compared to genes with up to three TEs.">>=
+vapply(bootMirPlusThree, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+The increase sample size as a result of this change is clearly seen in Table \ref{tab:mirPlusThree}, and the results of the bootstrapping procedure (Figure \ref{fig:plotMirPlusThree}) are highly consistent with those from mir elements acting in isolation (Figure \ref{fig:plotBootMirOnly}).
+
+\subsection{Summary of Results for Up to Three Additional Elements}
+
+The ressult from the above bootstrapping procedures are summarised in Table \ref{tab:allPlusThreeBoot}, and these values are directly comparable with those in Table \ref{tab:allSingleBoot}.
+
+<<allPlusThreeBoot, echo=FALSE, include=TRUE, results='asis'>>=
+vapply(bootAluPlusThree, function(x){x$p}, numeric(1)) %>%
+  as.data.frame() %>%
+  add_rownames("Tissue") %>%
+  select(Tissue, alu = contains(".")) %>%
+  mutate(Tissue = capwords(Tissue),
+         L1 = vapply(bootL1PlusThree, function(x){x$p}, numeric(1)),
+         L2 = vapply(bootL2PlusThree, function(x){x$p}, numeric(1)),
+         LTR = vapply(bootLTRPlusThree, function(x){x$p}, numeric(1)),
+         mir = vapply(bootMirPlusThree, function(x){x$p}, numeric(1))) %>%
+  xtable(digits = 4,
+         caption = "Bootstrapped p-values for Elements acting in the presence of up to Three Additional Elements",
+         align = "llrrrrr",
+         label = "tab:allPlusThreeBoot") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+\FloatBarrier
+
+\section{Looking at each region for each element}
+
+For this section, we can break each element down by region and compare genes with a specific element in a specific region, against genes with the same element, but in different regions.
+For example, we cold compare genes with an alu in the Proximal Promoter against genes with an alu in one of the other three regions.
+
+\subsection{alu elements}
+
+Firstly the dataset was subset into the set of genes with an alu, temporarily ignoring genes with no alu element.
+For this bootstrapping process, the number of iterations was initially set to 10000.
+
+<<aluData>>=
+nBoot = 10000L
+aluData <- tpmData %>% 
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("alu", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  filter(alu)
+@
+
+\subsubsection*{alu Elements in the CDS Vs alu Elements in other regions}
+
+<<aluBootCds, cache=TRUE>>=
+aluBootCds <- mclapply(tissues, bootMeans,
+                     data = aluData, 
+                     testIds = filter(aluData, alu_cds_IDs == 1)$ID,
+                     refIds = filter(aluData, alu_cds_IDs == 0)$ID,
+                     binCol = "^elBins$",
+                     nGenes = 1000, nBoot = nBoot, minGenes = 100)
+names(aluBootCds) <- tissues
+@
+
+In comparison to genes with alu elements in other regions, it was noted that genes with an alu in the CDS were less likely to be detected as expressed (Table \ref{tab:aluCdsFisher}).
+
+<<xTabAluBootCds, echo=FALSE, include=TRUE, results='asis'>>=
+ aluBootCds %>% 
+  lapply(function(x){data.frame(fisher.test(x$sampleSizes[,2:3])[c("estimate", "p.value")])}) %>% 
+  bind_rows %>% 
+  mutate(Tissue = capwords(tissues)) %>% 
+  select(Tissue, OddsRatio = estimate, P = p.value) %>% 
+  mutate(adjP = p.adjust(P, "bonferroni"), 
+         Sig = aster(adjP)) %>%
+  xtable(caption = "Tissue specific reults from Fisher Tests, indicating that genes with an alu in the CDS are less likely to be detected as expressed, in comparison to genes with an alu in another region.",
+         label = "tab:aluCdsFisher",
+         digits = c(0, 0, 3, -2, -2, 0)) %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+As seen in Figure \ref{fig:plotAluBootCds}, genes with an alu in the CDS exhibited clearly lower levels of expression when compared to genes with an alu in another region.
+However, it should be noted that this number of genes was \Sexpr{sum(aluBootCds$adipose$sampleSizes[1,-1])} in total, and moany of these were declared as not expressed in the various tissues.
+
+
+<<plotAluBootCds, fig.height=4, fig.cap="Bootstrapped Differences in mean log(TPM) for genes with an alu in the CDS, compared to genes with an alu in another region">>=
+vapply(aluBootCds, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+\subsubsection*{alu Elements in the Proximal Promoter Vs alu Elements in other regions}
+
+<<aluBootProx, cache=TRUE>>=
+aluBootProx <- mclapply(tissues, bootMeans,
+                     data = aluData, 
+                     testIds = filter(aluData, alu_prox_IDs == 1)$ID,
+                     refIds = filter(aluData, alu_prox_IDs == 0)$ID,
+                     binCol = "^elBins$",
+                     nGenes = 1000, nBoot = nBoot, minGenes = 100)
+names(aluBootProx) <- tissues
+@
+
+In comparison to genes with alu elements in other regions, it was noted that genes with an alu in the CDS were less likely to be detected as expressed (Table \ref{tab:aluProxFisher}).
+
+<<xTabAluBootProx, echo=FALSE, include=TRUE, results='asis'>>=
+ aluBootProx %>% 
+  lapply(function(x){data.frame(fisher.test(x$sampleSizes[,2:3])[c("estimate", "p.value")])}) %>% 
+  bind_rows %>% 
+  mutate(Tissue = capwords(tissues)) %>% 
+  select(Tissue, OddsRatio = estimate, P = p.value) %>% 
+  mutate(adjP = p.adjust(P, "bonferroni"), 
+         Sig = aster(adjP)) %>%
+  xtable(caption = "Tissue specific reults from Fisher Tests, indicating that genes with an alu in the Proximal Promoter are more likely to be detected as expressed, in comparison to genes with an alu in another region.",
+         label = "tab:aluProxFisher",
+         digits = c(0, 0, 3, -2, -2, 0)) %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+As seen in Figure \ref{fig:plotAluBootProx}, genes with an alu in the proximal promoter were clearly more highly expressed than genes with an alu in another region.
+This sample represented \Sexpr{sum(aluBootProx$adipose$sampleSizes[1,-1])} genes, and was compared against a reference sample of \Sexpr{sum(aluBootProx$adipose$sampleSizes[2,-1])} genes.
+
+
+<<plotAluBootProx, fig.height=4, fig.cap="Bootstrapped Differences in mean log(TPM) for genes with an alu in the Proximal Promoter, compared to genes with an alu in another region">>=
+vapply(aluBootProx, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+
+
+\subsubsection*{alu Elements in the 3'UTR Vs alu Elements in other regions}
+
+<<aluBootUtr3, cache=TRUE>>=
+aluBootUtr3 <- mclapply(tissues, bootMeans,
+                     data = aluData, 
+                     testIds = filter(aluData, alu_utr3_IDs == 1)$ID,
+                     refIds = filter(aluData, alu_utr3_IDs == 0)$ID,
+                     binCol = "^elBins$",
+                     nGenes = 1000, nBoot = nBoot, minGenes = 100)
+names(aluBootUtr3) <- tissues
+@
+
+In comparison to genes with alu elements in other regions, it was noted that genes with an alu in the 3'UTR were more likely to be detected as expressed (Table \ref{tab:aluUtr3Fisher}).
+
+<<xTabAluBootUtr3, echo=FALSE, include=TRUE, results='asis'>>=
+aluBootUtr3 %>% 
+  lapply(function(x){data.frame(fisher.test(x$sampleSizes[,2:3])[c("estimate", "p.value")])}) %>% 
+  bind_rows %>% 
+  mutate(Tissue = capwords(tissues)) %>% 
+  select(Tissue, OddsRatio = estimate, P = p.value) %>% 
+  mutate(adjP = p.adjust(P, "bonferroni"), 
+         Sig = aster(adjP)) %>%
+  xtable(caption = "Tissue specific reults from Fisher Tests, indicating that genes with an alu in the 3'UTR are more likely to be detected as expressed, in comparison to genes with an alu in another region.",
+         label = "tab:aluUtr3Fisher",
+         digits = c(0, 0, 3, -2, -2, 0)) %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+As seen in Figure \ref{fig:plotAluBootUtr3}, genes with an alu in the 3'UTR were not as highly expressed as genes with an alu in another region, for most tissues.
+However, this was not significantly different in Brain.
+This sample represented \Sexpr{sum(aluBootUtr3$adipose$sampleSizes[1,-1])} genes, and was compared against a reference sample of \Sexpr{sum(aluBootUtr3$adipose$sampleSizes[2,-1])} genes.
+
+
+<<plotAluBootUtr3, fig.height=4, fig.cap="Bootstrapped Differences in mean log(TPM) for genes with an alu in the 3'UTR, compared to genes with an alu in another region">>=
+vapply(aluBootUtr3, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+
+\subsubsection*{alu Elements in the 5'UTR Vs alu Elements in other regions}
+
+Due to the over-representation of genes with every element in the 5'UTR, genes with the complete set of elements identified in the 5'UTR were ignored for this subsection of the analysis.
+
+
+<<aluBootUtr5, cache=TRUE>>=
+aluBootUtr5 <- mclapply(tissues, bootMeans,
+                     data = filter(aluData, !grepl("_.+_.+_", elBins)), 
+                     testIds = filter(aluData, alu_utr5_IDs == 1, 
+                                      !grepl("_.+_.+_", elBins))$ID,
+                     refIds = filter(aluData, alu_utr5_IDs == 0, 
+                                     !grepl("_.+_.+_", elBins))$ID,
+                     binCol = "^elBins$",
+                     nGenes = 1000, nBoot = nBoot, 
+                     minGenes = 100, maxP = 0.01)
+names(aluBootUtr5) <- tissues
+@
+
+In comparison to genes with alu elements in other regions, it was noted that genes with an alu in the 5'UTR were less likely to be detected as expressed (Table \ref{tab:aluUtr5Fisher}).
+
+<<xTabAluBootUtr5, echo=FALSE, include=TRUE, results='asis'>>=
+aluBootUtr5 %>% 
+  lapply(function(x){data.frame(fisher.test(x$sampleSizes[,2:3])[c("estimate", "p.value")])}) %>% 
+  bind_rows %>% 
+  mutate(Tissue = capwords(tissues)) %>% 
+  select(Tissue, OddsRatio = estimate, P = p.value) %>% 
+  mutate(adjP = p.adjust(P, "bonferroni"), 
+         Sig = aster(adjP)) %>%
+  xtable(caption = "Tissue specific reults from Fisher Tests, indicating that genes with an alu in the 5'UTR are less likely to be detected as expressed, in comparison to genes with an alu in another region.",
+         label = "tab:aluUtr5Fisher",
+         digits = c(0, 0, 3, -2, -2, 0)) %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+As seen in Figure \ref{fig:plotAluBootUtr5}, genes with an alu in the 5'UTR were not as highly expressed as genes with an alu in another region, for most tissues, with the exception of Skeletal Muscle and Testes.
+This sample represented \Sexpr{sum(aluBootUtr5$adipose$sampleSizes[1,-1])} genes, and was compared against a reference sample of \Sexpr{sum(aluBootUtr5$adipose$sampleSizes[2,-1])} genes.
+
+
+<<plotAluBootUtr5, fig.height=4, fig.cap="Bootstrapped Differences in mean log(TPM) for genes with an alu in the 5'UTR, compared to genes with an alu in another region">>=
+vapply(aluBootUtr5, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+\subsection{Summary of Results for alu elements across the Regions}
+It ws clear that alu elements in the both the CDS and 5'UTR decreased the probability of being detected as being expressed, in comparison to genes with an alu element in the Proximal Promoter or the 3'UTR.\\
+
+In contrast to this, it appears that the majority of the upregulation observed as a result of a genes conatining an alu element, is due to the presence of an alu element in the proximal promoter
+
+
+<<allRegsAlu, echo=FALSE, include=TRUE, results='asis'>>=
+vapply(aluBootCds, function(x){x$p}, numeric(1)) %>%
+  as.data.frame() %>%
+  add_rownames("Tissue") %>%
+  select(Tissue, CDS = contains(".")) %>%
+  mutate(Tissue = capwords(Tissue),
+         `Proximal Promoter` = vapply(aluBootProx, function(x){x$p}, numeric(1)),
+         UTR3 = vapply(aluBootUtr3, function(x){x$p}, numeric(1)),
+         UTR5 = vapply(aluBootUtr5, function(x){x$p}, numeric(1))) %>%
+  xtable(digits = 4,
+         caption = "Bootstrapped p-values for alu elements in each region, compared to alu elements in all other regions.",
+         align = "llrrrr",
+         label = "tab:allRegsAlu") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+\subsection{Comparison Against the Wider Set of Genes}
+
+\subsubsection{Genes with an alu element in the proximal promoter only}
+As the set of genes with an alu element in the proximal promoter appear to be the main source of any observed up-regulation, these genes were compared against the wider set of genes, which don't contain any alu element.
+
+<<aluProxData>>=
+aluProxData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("alu", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  filter(!grepl("_.+_.+_", elBins),
+         alu_cds_IDs == 0, 
+         alu_utr3_IDs == 0, alu_utr5_IDs == 0)
+countsAluProxData <- count(aluProxData, alu, elBins) %>% 
+  dcast(elBins~alu, value.var = "n") 
+@
+
+<<xtabAluProxData, echo=FALSE, include=TRUE, results='asis'>>=
+countsAluProxData %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an alu` = `FALSE`, 
+         `Genes with an alu` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for alu elements, allowing up to one extra element.",
+         label = "tab:aluProxData",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootAluProx, cache=TRUE>>=
+bootAluProx <- mclapply(tissues, bootMeans, 
+                           data = aluProxData, 
+                           testIds = filter(aluProxData, alu)$ID, 
+                           refIds = filter(aluProxData, !alu)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L,
+                           maxP = 0.01)
+names(bootAluProx) <- tissues
+@
+
+<<plotAluProx, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in the proximal promoter.">>=
+vapply(bootAluProx, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+\subsubsection*{Genes with an alu element NOT in the proximal promoter}
+
+<<aluNoProxData>>=
+aluNoProxData <- tpmData %>%
+  mutate(elBins = binsFromCols(select(tpmData, 
+                                      one_of(grep("alu", 
+                                                  elements$type, 
+                                                  invert = TRUE, 
+                                                  value = TRUE))))) %>%
+  filter(!grepl("_.+_.+_", elBins), alu_prox_IDs == 0)
+countsAluNoProxData <- count(aluNoProxData, alu, elBins) %>% 
+  dcast(elBins~alu, value.var = "n") 
+@
+
+<<xtabAluNoProxData, echo=FALSE, include=TRUE, results='asis'>>=
+countsAluNoProxData %>% 
+  rename(`Additional Element` = elBins,
+         `Genes without an alu` = `FALSE`, 
+         `Genes with an alu` = `TRUE`) %>%
+  xtable(caption = "Sample Sizes for alu elements, allowing up to one extra element.",
+         label = "tab:aluProxData",
+         digits = 0) %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE)
+@
+
+<<bootAluNoProx, cache=TRUE>>=
+bootAluNoProx <- mclapply(tissues, bootMeans, 
+                           data = aluNoProxData, 
+                           testIds = filter(aluNoProxData, alu)$ID, 
+                           refIds = filter(aluNoProxData, !alu)$ID,
+                           binCol = "elBins",
+                           nBoot = nBoot, 
+                           nGenes = 1000L,
+                           maxP = 0.01)
+names(bootAluNoProx) <- tissues
+@
+
+<<plotAluNoProx, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in the proximal promoter.">>=
+vapply(bootAluNoProx, function(x){x$samples}, numeric(nBoot)) %>%
+  melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
+  mutate(Tissue = gsub("_TPM", "", Tissue),
+         Tissue = capwords(Tissue)) %>%
+  ggplot(aes(x = TPM, fill = Tissue)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(x = 0) +
+  facet_wrap(~Tissue) +
+  guides(fill = FALSE) +
+  theme_bw()
+@
+
+
+
 \appendix
 \section{Session Info}
 
-<<save, echo=FALSE>>=
+<<save, eval = FALSE, echo=FALSE>>=
 save.image("TEBootstrapAnalysis.RData")
 @
 
