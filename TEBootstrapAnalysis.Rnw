@@ -1871,7 +1871,7 @@ countsAluProxData %>%
   rename(`Additional Element` = elBins,
          `Genes without an alu` = `FALSE`, 
          `Genes with an alu` = `TRUE`) %>%
-  xtable(caption = "Sample Sizes for alu elements, allowing up to one extra element.",
+  xtable(caption = "Sample Sizes for alu elements in the proximal promoter, allowing up to one extra element.",
          label = "tab:aluProxData",
          digits = 0) %>%
   print(caption.placement = "top",
@@ -1922,7 +1922,7 @@ countsAluNoProxData %>%
   rename(`Additional Element` = elBins,
          `Genes without an alu` = `FALSE`, 
          `Genes with an alu` = `TRUE`) %>%
-  xtable(caption = "Sample Sizes for alu elements, allowing up to one extra element.",
+  xtable(caption = "Sample Sizes for alu elements not inthe proximal promoter, allowing up to one extra element.",
          label = "tab:aluProxData",
          digits = 0) %>%
   print(caption.placement = "top",
@@ -1941,7 +1941,7 @@ bootAluNoProx <- mclapply(tissues, bootMeans,
 names(bootAluNoProx) <- tissues
 @
 
-<<plotAluNoProx, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements in the proximal promoter.">>=
+<<plotAluNoProx, echo=FALSE, fig.height= 4, fig.cap = "Bootstrapped differences in mean log(TPM) for genes with Alu elements not in the proximal promoter.">>=
 vapply(bootAluNoProx, function(x){x$samples}, numeric(nBoot)) %>%
   melt(varnames = c("Row", "Tissue"), value.name = "TPM") %>%
   mutate(Tissue = gsub("_TPM", "", Tissue),
@@ -1955,7 +1955,7 @@ vapply(bootAluNoProx, function(x){x$samples}, numeric(nBoot)) %>%
 @
 
 
-
+\FloatBarrier
 \appendix
 \section{Session Info}
 
