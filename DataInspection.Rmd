@@ -203,7 +203,9 @@ sapply(lengthWilcox, function(x){x$p.value}) %>%
   add_rownames("Comparison") %>% 
   select(Comparison, p = 2) %>%
   mutate(adjP = p.adjust(p, "bonferroni"),
-         sig  = aster(adjP)) %>%
+         sig  = aster(adjP),
+         p = formatC(p, digits = 2, format = "e"),
+         adjP = formatC(adjP, digits = 2, format = "e")) %>%
   kable(format.args = list(scientific=TRUE, digits=3),
         col.names = c("Comparison", "p-value", "adjusted p-value", ""))
 ```
@@ -883,7 +885,9 @@ sapply(lengthWilcoxEl, function(x){x$p.value}) %>%
   add_rownames("Comparison") %>% 
   select(Comparison, p = 2) %>%
   mutate(adjP = p.adjust(p, "bonferroni"),
-         sig  = aster(adjP)) %>%
+         sig  = aster(adjP),
+         p = formatC(p, digits = 2, format = "e"),
+         adjP = formatC(adjP, digits = 2, format = "e")) %>%
   kable(format.args = list(scientific=TRUE, digits=3),
         col.names = c("Comparison", "p-value", "adjusted p-value", ""))
 ```
