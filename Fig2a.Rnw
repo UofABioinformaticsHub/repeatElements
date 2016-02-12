@@ -6,426 +6,568 @@
 \usepackage{titling}
 \usepackage{fullpage}
 \usepackage{pdflscape}
+\usepackage{placeins}
 
 \begin{document}
 
-\title{Data for Figure 2a}
+\title{Data for Figure 2}
 \author{Steve Pederson\\
         Adelaide University\\
         Bioinformatics Centre}
 \maketitle
 
-<<loadPackages, include=FALSE, echo=FALSE>>=
+<<loadPackages, message=FALSE, warning=FALSE>>=
 library(ggplot2)
 library(MASS)
 library(matrixStats)
-library(vioplot)
 library(xtable)
 library(multcomp)
+library(sandwich)
+library(car)
 library(boot)
+library(dplyr)
+library(readr)
+library(knitr)
+library(magrittr)
+library(limma)
 source("extraFunctions.R")
 @
 
 <<knitrSetup, include=FALSE>>=
 knit_hooks$set(crop=hook_pdfcrop)
 opts_knit$set(self.contained=FALSE)
-opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, include=FALSE, echo=FALSE, cache=TRUE)
+opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, 
+               include=TRUE, echo=TRUE, results = 'hide',
+               warning = FALSE, message = FALSE)
 Sys.setenv(TEXINPUTS=getwd(), BIBINPUTS=getwd(), BSTINPUTS=getwd())
 pdf.options(useDingbats=TRUE)
 @
 
-
+\section{Loading \& Transforming the Data}
 <<loadData>>=
-fig2 <- read.csv("Figure2.csv", header=FALSE, stringsAsFactor=FALSE)
-colnames(fig2) <- c("Region", "RE", "Tissue", "bpRETE", "bpRE")
-fig2$Region <- factor(fig2$Region, levels=c("5'UTR", "Start", "CDS-exon", "CDS-intron", "Stop", "3'UTR", "Intergenic"))
-fig2$RE <- factor(fig2$RE, levels=c("Active_promoter","Weak_promoter", "Strong_enhancer", "Weak_enhancer","Repressor", "Insulator"))
-levels(fig2$RE)[1:4] <- c("Active Promoter","Weak Promoter", "Strong Enhancer", "Weak Enhancer")
-fig2$Tissue <- as.factor(fig2$Tissue)
-fig2[,4:5] <- fig2[,4:5]/100 # Convert back to proportions
+fig2 <- read_csv("Figure2.csv", col_names = FALSE) %>%
+  set_colnames(c("Region", "RE", "Tissue", "bpRETE", "bpRE")) %>%
+  #filter(!Region %in% c("Start", "Stop")) %>%
+  mutate(Region = gsub("([35])'UTR", "UTR\\1", Region),
+         Region = gsub("CDS-", "CDS", Region),
+         Region = factor(Region, levels=c("UTR5", "CDSexon", "CDSintron",  
+                                          "UTR3", "Intergenic")),
+         RE = gsub("Repressor", "Repressed_region", RE),
+         RE = factor(RE, levels= c("Active_promoter","Weak_promoter", "Strong_enhancer", 
+                                   "Weak_enhancer", "Repressed_region", "Insulator")),
+         Tissue = as.factor(Tissue),
+         bpRETE = bpRETE / 100,
+         bpRE = bpRE/100,
+         logitRETE = logit(bpRETE),
+         logitRE = logit(bpRE)) 
 @
 
-<<collectStats>>=
-n <- length(levels(fig2$RE))*length(levels(fig2$Region))
-fig2stats <- data.frame(Region = factor(rep(levels(fig2$Region), each=length(levels(fig2$RE))), levels=levels(fig2$Region)),
-                       RE = factor(rep(levels(fig2$RE), times=length(levels(fig2$Region))), levels=levels(fig2$RE)),
-                       Class = rep(c("BG", "RETE"), each=n))
-temp <- matrix(0, nrow=n*2, ncol=3, dimnames=list(c(),c("mean","lower","upper")))
-for (i in 1:n){
-  x <- logit(fig2$bpRE[intersect(which(fig2$Region==fig2stats$Region[i]), which(fig2$RE==fig2stats$RE[i]))])
-  temp[i, 1] <- inv.logit(mean(x))
-  temp[i, 2] <- inv.logit(mean(x)-sd(x))
-  temp[i, 3] <- inv.logit(mean(x)+sd(x))
-  y <- logit(fig2$bpRETE[intersect(which(fig2$Region==fig2stats$Region[i]), which(fig2$RE==fig2stats$RE[i]))])
-  temp[i + n, 1] <- inv.logit(mean(y))
-  temp[i + n, 2] <- inv.logit(mean(y)-sd(y))
-  temp[i + n, 3] <- inv.logit(mean(y)+sd(y))
-}
-fig2stats <- data.frame(fig2stats, 100*temp)
-## Change the lebelling for better reading on facets
-levels(fig2stats$Class)[levels(fig2stats$Class)=="BG"] <- "RE in Genomic Region"
-levels(fig2stats$Class)[levels(fig2stats$Class)=="RETE"] <- "TE in RE"
+\begin{itemize}
+  \item The raw data was loaded, omitting the Start \& Stop Regions
+  \item To ensure valid syntactic names for downstream analysis, the prime symbol (') and the dash (-) were removed from Region names.
+  Spaces were converted to underscores.
+  \item Percentages of base pairs found to be REs or RETEs were converted to proportions and transformed using the logit transformation to ensure approximate normality
+  \item The logit-transformed data were plotted for both REs (Figure \ref{fig:plotRawRE}) and RETEs (Figure \ref{fig:plotRawRETE}) to ensure similar distributions within each Regulatory Element
+\end{itemize}
+
+<<plotRawRE, echo=FALSE, fig.height=4, fig.cap='Logit transformed proportions across all 6 tissues for Regulatory Elements'>>=
+fig2 %>% 
+  ggplot(aes(x = Region, y = logitRE, fill = Region)) + 
+  geom_boxplot() + 
+  facet_wrap(~RE) +
+  theme_bw() +
+  labs(y = expression(paste("logit(",pi[RE], ")"))) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
 @
 
-\section*{Data Preparation}
-Data was loaded into R, and the mean \& standard error of the density of bases across all tissues was calculated across all 6 tissues by changing data to proportions and using the logit transformation.
-These values were transformed back into percentages for the purposes of plotting in Figure \ref{fig:fig2a}.\\
+
+<<plotRawRETE, echo=FALSE, fig.height=4, fig.cap='Logit transformed proportions across all 6 tissues for Regulatory Elements with Transposable Elements'>>=
+fig2 %>% 
+  ggplot(aes(x = Region, y = logitRETE, fill = Region)) + 
+  geom_boxplot() + 
+  facet_wrap(~RE) +
+  theme_bw() +
+  labs(y = expression(paste("logit(",pi[RETE], ")"))) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+@
+
+\FloatBarrier
+\section{Analysis of Regulatory Elements}
+
+The approach taken is to model the probability of each base within a region belonging to a Regulatory Element ($\pi_i: i = 1, 2, \ldots, 6$), as a proxy for the density of these elements within each region.
+As the REs are mutually exclusive, these probabilities are not independent and should be modelled separately, but can be modelled across all genomic regions as these stretches of the genome can be considered to be independent.
+The samples from the 6 different tissues are considered to be biological replicates indicative of an average measure across all tissues, with the proportion of bases belonging to each RE class being representative of the probability $\pi$.\\
+
+\subsection{Initial Model Checks}
+The first thing to assess is whether the variance between the replicates is approximately equal between regions.
+This test for homoscedasticity was performed using Levene's Test, with results given in Table \ref{tab:leveneRE}.
+Levene's test is a test for the null hypothesis $H_0: \sigma_1 = \sigma_2 = \ldots = \sigma_6$, with the alternative that the variances are not all equal.
+No evidence of the inequality of variances was detected within any region, and this gives initial support to being able to use linear regression on this data. \\
 \\
-For the density of Regulatory Elements within each region, and for the density of Transposable Element within each Regulatory Element, data was again analysed using the logit transformation.
-A linear regression analysis was performed for the density of Regulatory Elements within each genomic region, and all pairwise comparisons were performed using Tukey's Honestly Significant Difference at the 99\% significance level, after adjustment for multiple comparisons using the R package \textit{multcomp}.
-An interval which contained zero was indicative of no difference in the two specific densities being compared.
-If an interval was completely positive the first term in the comparison can be considered as enriched in comparison to the other.
-Conversely if an interval was exclusively negative the second term in the comparison could be considered as enriched.
+A linear regression model was then fit for each separate RE, and Normal QQ plots were inspected for approximate normality (Figure \ref{fig:qqNormRE}).
+Despite a few outlier points being evident, no strong evidence for violation of this assumption were detected, and any subsequent results may be considered meaningful.
 
-\begin{landscape}
-<<fig2a, fig.height=7, fig.width=11, include=TRUE, fig.cap='Density of Regulatory Elements shown across multiple genomic regions, denoted in percentage of base pairs (\\%bp), and density of Transposable Elements within Regulatory Elements.'>>=
-y_ranges <- data.frame(Region=rep("5'UTR",2), RE=rep("Active Promoter", 2), Class=c("RE in Genomic Region","TE in RE"), mean=c(26, 3.7))
-ggplot(fig2stats, aes(x=Region, y=mean, fill=Region)) +
-  facet_grid(Class ~ RE, scales="free_y") +
-  geom_bar(stat = "identity", position="dodge") + 
-  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.2) +
-  ylab("Percentage of Base Pairs") + 
-  xlab("") +
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  scale_y_continuous(expand=c(0,0)) + 
-  geom_blank(data=y_ranges, aes(x=Region, y=mean))
+<<leveneRE, warning=FALSE, echo=FALSE, include=TRUE, results='asis'>>=
+fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  lapply(function(x){data.frame(RE = x,
+                                leveneTest(logitRE ~ Region, 
+                                data = filter(fig2, RE == x), 
+                                center = mean)[1,])}) %>%
+  bind_rows %>%
+  set_colnames(c("Regulatory Element", "DF", "F Statistic", "P Value")) %>%
+  xtable(label = "tab:leveneRE",
+         caption = paste("Levene's Test for homogeneity of variance across regions within each RE.",
+                         "The null hypothesis was not rejected in any RE, ",
+                         "thus we can conclude that variances are equal across regions"),
+         digits = c(0, 0, 0, 3, 3),
+         align = "llrrr") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
 @
-\end{landscape}
 
-\section{The Baseline Densities of Regulatory Elements Within Genomic Regions}
 
-<<setupBGObjects>>=
-## The basic approach here will be to perform a series of pairwise comparisons within each region
-## Raw p-values for each comparison will not be adjusted until all comparisons have been performed
-## Setup an array capable of holding each set of comparisons
-comps <- c("Start - 5'UTR", "CDS-exon - 5'UTR", "CDS-intron - 5'UTR", "Stop - 5'UTR", "3'UTR - 5'UTR", "Intergenic - 5'UTR", "CDS-exon - Start", "CDS-intron - Start", "Stop - Start", "3'UTR - Start", "Intergenic - Start", "CDS-intron - CDS-exon", "Stop - CDS-exon", "3'UTR - CDS-exon", "Intergenic - CDS-exon", "Stop - CDS-intron", "3'UTR - CDS-intron", "Intergenic - CDS-intron", "3'UTR - Stop", "Intergenic - Stop", "Intergenic - 3'UTR")
-regEls <- levels(fig2stats$RE)
-bgComps <- array(0, dim=c(21, 5, 6), dimnames=list(comps, c("coefficients", "sigma", "Tstat", "Pvalues", "adjP"), regEls))
-bgList.glht <- vector("list", 6)
-names(bgList.glht) <- regEls
-for (i in 1:6) {
-  bgList.glht[[i]] <- glht(lm(logit(bpRE) ~ 0 + Region, data=subset(fig2, RE==names(bgList.glht)[i])), linfct=mcp(Region="Tukey"))
-  bgComps[,1:4,i] <- as.matrix(data.frame(summary(bgList.glht[[i]], test=adjusted(type="none"))$test[3:6]))
-}
-bgComps[,5,] <- p.adjust(bgComps[,4,], method="bonf")
-
+<<lmRE>>=
+lmRE <- fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  sapply(function(x){
+    lm(logitRE ~ 0 +Region, data = filter(fig2, RE == x))
+  },
+  simplify = FALSE)
 @
-For all genomic regions, the average density of regulatory elements was estimated across all 6 tissues using proportion of basepairs transformed using the logit function (see above).
-Pairwise comparisons were then performed for the average densities, and $p$-values were adjusted using Bonferroni's procedure at the family level, i.e. across all regulatory elements in all tissues.
 
-\subsection*{Active Promoters in Genomic Regions}
-<<bgAP, include=TRUE, results='asis'>>=
-bgAP <- data.frame(Estimate=bgComps[,"coefficients","Active Promoter"], 
-                   Tstat=bgComps[,"Tstat","Active Promoter"],
-                   PValue = "",
-                   Sig = aster(bgComps[,"adjP","Active Promoter"]),
-                   stringsAsFactors=FALSE)
-bgAP$PValue[which(bgComps[,"adjP","Active Promoter"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Active Promoter"] > 0.001),"adjP","Active Promoter"], digits=2)
-bgAP$PValue[which(bgComps[,"adjP","Active Promoter"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Active Promoter"] <= 0.001),"adjP","Active Promoter"], digits=3, scientific=TRUE)
-bgAP$PValue[which(bgComps[,"adjP","Active Promoter"] == 0)] <- "<2e-16"
-print(xtable(bgAP, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:bgAP", 
-             caption = "Pairwise comparisons for density of \\textbf{Active Promoters} between genomic regions. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
+
+<<qqNormRE, echo = FALSE, fig.height=6, fig.cap='Normal QQ plots for the residuals from each Regulatory Element.'>>=
+par(mfrow = c(2, 3))
+names(lmRE) %>%
+  lapply(function(x){
+         plot(lmRE[[x]],
+          which = 2,
+          caption = NA,
+          main = paste0(x, ":\n Normal Q-Q"))
+  })
+par(mfrow = c(1, 1))
 @
-Pairwise comparisons (Table \ref{tab:bgAP}) revealed that:
+
+\FloatBarrier
+\subsection{Results of Analysis for Regulatory Elements}
+The test being used to detect any differing probabilities across the genomic regions will be Tukey's Honestly Significant Difference (HSD), which depends on the assumptions of normality and homoscedasticity performed above.
+Comparisons across regions will be performed separately for each RE, and the $p$-values for the complete set of REs will be adjusted for multiple comparisons using Bonferroni's methods to control the FWER across the entire experiment.
+All results from pairwise comparisons are presented in Tables \ref{tab:REActivepromoter} to \ref{tab:REInsulator}.
+
+<<resRE>>=
+resRE <- names(lmRE) %>%
+  lapply(function(x){
+    glht(lmRE[[x]], linfct = mcp(Region = "Tukey")) %>%
+      summary(adjusted(type = "none")) %>%
+      extract2("test") %>%
+      extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+      as.data.frame %>%
+      add_rownames("Comparison") %>%
+      mutate(RE = x)}) %>%
+  bind_rows %>%
+  dplyr::select(RE, Comparison, 
+                Estimate = coefficients,
+                Std.Error = sigma,
+                T = tstat,
+                P = pvalues) %>%
+  mutate(adjP = p.adjust(P, "bonferroni"),
+         Sig = aster(adjP),
+         Comparison = gsub("UTR(3|5)", "\\1'UTR", Comparison))
+@
+
+<<printResRE, echo=FALSE, include=TRUE, results='asis'>>=
+xtabRE <- invisible(levels(fig2$RE) %>%
+  lapply(function(x){
+    resRE %>%
+      filter(RE == x) %>%
+      dplyr::select(Comparison, Estimate, 
+                    `T-statistic` = T, 
+                    `p-value` = adjP, 
+                    ` ` = Sig) %>%
+      xtable(label = gsub("_", "", paste0("tab:RE", x)),
+             digits = c(0, 0, 3, 3, -2, 0),
+             align = "llrrrl",
+             caption = paste("Pairwise comparisons for density of \\textbf{", 
+                             capwords(gsub("_", " ", x)),
+                             "Elements} between genomic regions.",
+                             "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
+                             "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
+                             "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
+                             "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
+  }) %>%
+    lapply(print,
+           include.rownames = FALSE,
+           caption.placement = "top",
+           print.results = FALSE) %>%
+  unlist %>%
+  (function(x){gsub("(T|p)-", "$\\1$-",x)}))
+cat(xtabRE)
+@
+
+\FloatBarrier
+\section{Analysis of Transposable Elements Within Regulatory Elements}
+
+The same approach as above was used to assess any differing probabilities of a base within a given region being a TE within an RE, i.e. RETE.
+
+\subsection{Initial Model Checks}
+Levene's test was again used to assess homoscedasticity between regions for each RE.
+In contrast to this test for REs alone, evidence of heteroscedasticity was detected in the samples for Active Promoter regions (Table \ref{tab:leveneRETE}; $p = 0.021$).
+Inspection of the raw data in Figure \ref{fig:plotRawRETE} revealed lower than usual variance between measures in the CDS-exon RETE values and this is the likely source of this significant result.
+Weak evidence was also suggestive of heteroscedasticity for Weak Enhancer samples ($p = 0.074$).
+To counteract these findings, the sandwich estimator was used for the variance-covariance matrix in pairwise comparisons for all RETEs.
+\\
+A linear regression model was then fit for each separate RETE, and Normal QQ plots were inspected for approximate normality (Figure \ref{fig:qqNormRETE}).
+Once again, despite a few outlier points being evident, no strong evidence for violation of this assumption were detected, and any subsequent results may be considered meaningful.
+
+<<leveneRETE, warning=FALSE, echo=FALSE, include=TRUE, results='asis'>>=
+fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  lapply(function(x){data.frame(RE = x,
+                                leveneTest(logitRETE ~ Region, 
+                                data = filter(fig2, RE == x), 
+                                center = mean)[1,])}) %>%
+  bind_rows %>%
+  set_colnames(c("Regulatory Element", "DF", "F Statistic", "P Value")) %>%
+    mutate(` ` = aster(`P Value`)) %>%
+  xtable(label = "tab:leveneRETE",
+         caption = paste("Levene's Test for homogeneity of variance across regions within each RE.",
+                         "The null hypothesis was rejected in Active Promoters,",
+                         "with further weak evidence seen in Weak Enhancers."),
+         digits = c(0, 0, 0, 3, 3, 0),
+         align = "llrrrl") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+<<lmRETE>>=
+lmRETE <- fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  sapply(function(x){
+    lm(logitRETE ~ 0 + Region, data = filter(fig2, RE == x))
+  },
+  simplify = FALSE)
+@
+
+
+<<qqNormRETE, echo = FALSE, fig.height=6, fig.cap='Normal QQ plots for the residuals from each Regulatory Element.'>>=
+par(mfrow = c(2, 3))
+names(lmRETE) %>%
+  lapply(function(x){
+         plot(lmRETE[[x]],
+          which = 2,
+          caption = NA,
+          main = paste0(x, ":\n Normal Q-Q"))
+  })
+par(mfrow = c(1, 1))
+@
+
+\FloatBarrier
+\subsection{Results of Analysis for Transposable Elements Within Regulatory Elements}
+The test being used to detect any differing probabilities across the genomic regions will again be Tukey's Honestly Significant Difference (HSD), which depends on the assumptions of normality and homoscedasticity performed above.
+As also mentioned above, the sandwich estimator for the variance-covariance matrix was used in all pairwise comparisons to counteract any effects due to heteroscedasticity. \\
+\\
+Comparisons across regions will be performed separately for each RETE, and the $p$-values for the complete set of RETEs will be adjusted for multiple comparisons using Bonferroni's methods to control the FWER across the entire experiment.
+All results from pairwise comparisons are presented in Tables \ref{tab:RETEActivepromoter} to \ref{tab:RETEInsulator}.
+
+<<resRETE>>=
+resRETE <- names(lmRETE) %>%
+  lapply(function(x){
+    glht(lmRETE[[x]], linfct = mcp(Region = "Tukey"), vcov = sandwich) %>%
+      summary(adjusted(type = "none")) %>%
+      extract2("test") %>%
+      extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+      as.data.frame %>%
+      add_rownames("Comparison") %>%
+      mutate(RE = x)}) %>%
+  bind_rows %>%
+  dplyr::select(RE, Comparison, 
+                Estimate = coefficients,
+                Std.Error = sigma,
+                T = tstat,
+                P = pvalues) %>%
+  mutate(adjP = p.adjust(P, "bonferroni"),
+         Sig = aster(adjP),
+         Comparison = gsub("UTR(3|5)", "\\1'UTR", Comparison))
+@
+
+<<printResRETE, echo=FALSE, include=TRUE, results='asis'>>=
+xtabRETE <- invisible(levels(fig2$RE) %>%
+  lapply(function(x){
+    resRETE %>%
+      filter(RE == x) %>%
+      dplyr::select(Comparison, Estimate, 
+                    `T-statistic` = T, 
+                    `p-value` = adjP, 
+                    ` ` = Sig) %>%
+      xtable(label = gsub("_", "", paste0("tab:RETE", x)),
+             digits = c(0, 0, 3, 3, -2, 0),
+             align = "llrrrl",
+             caption = paste("Pairwise comparisons for density of TEs within \\textbf{", 
+                             capwords(gsub("_", " ", x)),
+                             "Elements} between genomic regions.",
+                             "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
+                             "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
+                             "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
+                             "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
+  }) %>%
+    lapply(print,
+           include.rownames = FALSE,
+           caption.placement = "top",
+           print.results = FALSE) %>%
+  unlist %>%
+  (function(x){gsub("(T|p)-", "$\\1$-",x)}))
+cat(xtabRETE)
+@
+
+
+<<paperFig2, echo = FALSE, fig.height=4, fig.cap = 'Figure 2 as it currently appears in the paper'>>=
+fs <- 8
+c(lmRE, lmRETE) %>% 
+  lapply(summary) %>% 
+  lapply(coef) %>%
+  lapply(as.data.frame) %>%
+  lapply(add_rownames, var = "Region") %>%
+  bind_rows %>%
+  mutate(RE = rep(rep(names(lmRE), each = 5), 2),
+         RE = gsub("_", " ", RE),
+         RE = capwords(RE),
+         #RE = gsub(" ", "\n", RE),
+         RE = factor(RE, levels = unique(RE)),
+         Region = gsub("Region", "", Region),
+         Region = gsub("UTR(3|5)", "\\1'UTR", Region),
+         Region = gsub("CDS", "CDS ", Region),
+         Region = factor(Region, levels = unique(Region)),
+         Class = rep(c("RE in Genomic Region", "RE with TEs"), each = 30)) %>%
+  mutate(pi = binomial()$linkinv(Estimate),
+         lower = binomial()$linkinv(Estimate - `Std. Error`),
+         upper = binomial()$linkinv(Estimate + `Std. Error`)) %>%
+  ggplot(aes(x = Region, y = pi, fill = Region)) + 
+  geom_bar(stat = "identity") +
+  geom_errorbar(aes(ymin = lower, ymax = upper),
+                width= 0.4) +
+  theme_bw() +
+  labs(x = "", y = expression(hat(pi))) +
+  scale_y_continuous(expand=c(0.04,0)) + 
+  facet_grid(Class~RE, scales = "free_y") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(angle = 0, size = fs),
+        axis.text.y = element_text(size = fs-1),
+        strip.text = element_text(size = fs-1),
+        legend.text = element_text(size = fs),
+        legend.title = element_text(size = fs),
+        panel.margin = unit(.004, "npc"),
+        panel.grid = element_line(colour = "grey50")) 
+@
+
+
+
+\FloatBarrier
+\section{Analysis of Transposable Elements Given Repeat Elements}
+One further exploration not undertaken before is the analysis of the conditional probabilities for a base being a TE, \textit{given that the base belongs to a regulatory element}, i.e. $\pi = p(TE|RE)$
+The raw data was plotted in Figure \ref{fig:plotTEgivRE} with some potentially interesting patterns being clearly evident.
+
+<<addConditionalTerm>>=
+fig2 %<>% 
+  mutate(bpTEgivRE = bpRETE / bpRE,
+         logitTEgivRE = logit(bpTEgivRE))
+@
+
+
+<<plotTEgivRE, echo=FALSE, fig.height=4, fig.cap='Logit transformed proportions across all 6 tissues for the probability of a base being a Transposable Element, given that the base is in a Regulatory Element'>>=
+fig2 %>% 
+  ggplot(aes(x = Region, y = logitTEgivRE, fill = Region)) + 
+  geom_boxplot() + 
+  facet_wrap(~RE) +
+  theme_bw() +
+  labs(y = expression(paste("logit(",pi[TE], "|", pi[RE], ")"))) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+@
+
+\subsection{Initial Model Checks}
+Levene's test was once again used to assess homoscedasticity between regions for each measurement of $p(TE | RE)$.
+Evidence of heteroscedasticity was again detected in the samples for Active Promoter regions (Table \ref{tab:leveneTEgivRE}; $p = 0.002$).
+Inspection of the raw data in Figure \ref{fig:plotTEgivRE} revealed lower than usual variance between measures in the CDS-exon RETE values and this is the likely source of this significant result.
+Weak evidence was also suggestive of heteroscedasticity for Repressed Region samples ($p = 0.067$).
+To counteract these findings, the sandwich estimator was used for the variance-covariance matrix in pairwise comparisons for all RETEs.
+\\
+A linear regression model was then fit for each separate RETE, and Normal QQ plots were inspected for approximate normality (Figure \ref{fig:qqNormTEgivRE}).
+Once again, despite a few outlier points being evident, no strong evidence for violation of this assumption were detected, and any subsequent results may be considered meaningful.
+
+<<leveneTEgivRE, warning=FALSE, echo=FALSE, include=TRUE, results='asis'>>=
+fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  lapply(function(x){data.frame(RE = x,
+                                leveneTest(logitTEgivRE ~ Region, 
+                                data = filter(fig2, RE == x), 
+                                center = mean)[1,])}) %>%
+  bind_rows %>%
+  set_colnames(c("Regulatory Element", "DF", "F Statistic", "P Value")) %>%
+    mutate(` ` = aster(`P Value`)) %>%
+  xtable(label = "tab:leveneTEgivRE",
+         caption = paste("Levene's Test for homogeneity of variance across measures for $p(TE | RE)$",
+                         "The null hypothesis was rejected in Active Promoters,",
+                         "with further weak evidence seen in Repressed Regions."),
+         digits = c(0, 0, 0, 3, 3, 0),
+         align = "llrrrl") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+<<lmTEgivRE>>=
+lmTEgivRE <- fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  sapply(function(x){
+    lm(logitTEgivRE ~ 0 + Region, data = filter(fig2, RE == x))
+  },
+  simplify = FALSE)
+@
+
+
+<<qqNormTEgivRE, echo = FALSE, fig.height=6, fig.cap='Normal QQ plots for the residuals from the conditional model for Regulatory Element.'>>=
+par(mfrow = c(2, 3))
+names(lmRETE) %>%
+  lapply(function(x){
+         plot(lmTEgivRE[[x]],
+          which = 2,
+          caption = NA,
+          main = paste0(x, ":\n Normal Q-Q"))
+  })
+par(mfrow = c(1, 1))
+@
+
+\FloatBarrier
+\subsection{Results of Analysis for Conditional Probabilities}
+The test being used to detect any differing conditional probabilities across the genomic regions will again be Tukey's Honestly Significant Difference (HSD), which depends on the assumptions of normality and homoscedasticity performed above.
+As also mentioned above, the sandwich estimator for the variance-covariance matrix was used in all pairwise comparisons to counteract any effects due to heteroscedasticity. \\
+\\
+Comparisons across regions will be performed separately for each RE, and the $p$-values for the complete set of $p$-values obtained will be adjusted for multiple comparisons using Bonferroni's methods to control the FWER across the entire experiment.
+All results from pairwise comparisons are presented in Tables \ref{tab:TEgivREActivepromoter} to \ref{tab:TEgivREInsulator}.
+
+<<resTEgivRE>>=
+resTEgivRE <- names(lmTEgivRE) %>%
+  lapply(function(x){
+    glht(lmTEgivRE[[x]], linfct = mcp(Region = "Tukey"), vcov = sandwich) %>%
+      summary(adjusted(type = "none")) %>%
+      extract2("test") %>%
+      extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+      as.data.frame %>%
+      add_rownames("Comparison") %>%
+      mutate(RE = x)}) %>%
+  bind_rows %>%
+  dplyr::select(RE, Comparison, 
+                Estimate = coefficients,
+                Std.Error = sigma,
+                T = tstat,
+                P = pvalues) %>%
+  mutate(adjP = p.adjust(P, "bonferroni"),
+         Sig = aster(adjP),
+         Comparison = gsub("UTR(3|5)", "\\1'UTR", Comparison))
+@
+
+<<printResTEgivRE, echo=FALSE, include=TRUE, results='asis'>>=
+xtabTEgivRE <- invisible(levels(fig2$RE) %>%
+  lapply(function(x){
+    resTEgivRE %>%
+      filter(RE == x) %>%
+      dplyr::select(Comparison, Estimate, 
+                    `T-statistic` = T, 
+                    `p-value` = adjP, 
+                    ` ` = Sig) %>%
+      xtable(label = gsub("_", "", paste0("tab:TEgivRE", x)),
+             digits = c(0, 0, 3, 3, -2, 0),
+             align = "llrrrl",
+             caption = paste("Pairwise comparisons for probability of a base being a TE given it is within \\textbf{", 
+                             capwords(gsub("_", " ", x)),
+                             "Elements}.",
+                             "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
+                             "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
+                             "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
+                             "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
+  }) %>%
+    lapply(print,
+           include.rownames = FALSE,
+           caption.placement = "top",
+           print.results = FALSE) %>%
+  unlist %>%
+  (function(x){gsub("(T|p)-", "$\\1$-",x)}))
+cat(xtabTEgivRE)
+@
+
+\FloatBarrier
+\subsection{Summary of Conditional Analysis}
+Combining the data from Tables \ref{tab:TEgivREActivepromoter} to \ref{tab:TEgivREInsulator} and Figure \ref{fig:plotTEgivRE}:
 \begin{itemize}
-\item Unsurprisingly, Active Promoters (APs) are significantly enriched in Start Sites in comparison to all other sampled genomic regions.
-\item APs were also enriched in 5'UTRs in comparison to all regions, except CDS-exons \& the aforementioned start sites.
-\item CDS-exons were also enriched for APs in comparison to Introns, Stop Sites, 3'UTRs \& Intergenic Regions.
-\item Finally, Transcription Stop Sites were marginally enriched for APs in comparison to 3'UTRs \& Intergenic Regions.
+  \item The conclusion can be drawn that there is strong selection against TEs within REs located in CDS exons in comparison to every element in every genomic region.
+  \item The selective pressure against TE seems to be slightly weaker in both promoter regions for CDS exons when compared to other element types.
+  \item With the exception of Active Promoters, there is selective pressure against TEs located in the 3'UTR in comparison to all regions except CDS exons. 
+  The lack of significance in Active Promoters is only in comparison to 5'UTRs, and this is likely to be a Type 2 error as the raw $p =$ \Sexpr{format(filter(resTEgivRE, grepl("3'UTR", Comparison), adjP > 0.05)$P, digits = 4, scientific = TRUE)}
+  \item There is no evidence for any differing selective pressure acting on TEs between any of the REs located in 5'UTRs and CDS introns for any of the elements
+  \item For Polycomb Repressed Regions and Insulators located in Intergenic regions, there was an increase in probability of being a TE when compared to CDS introns ($p$ = \Sexpr{format(filter(resTEgivRE, grepl("tron", Comparison), grepl("Intergenic", Comparison), RE == "Repressed_region")$adjP, digits = 3, scientific = TRUE)} \& $p$ = \Sexpr{format(filter(resTEgivRE, grepl("tron", Comparison), grepl("Intergenic", Comparison), RE == "Insulator")$adjP, digits = 3)} respectively), perhaps indicating even less selective pressure
+  \item This pattern of an increased probability of being a TE  was also evident for Repressed Regions located in Intergenic and 5'UTRs ($p$ = \Sexpr{format(filter(resTEgivRE, grepl("5'UTR", Comparison), grepl("Intergenic", Comparison), RE == "Repressed_region")$adjP, digits = 3, scientific = TRUE)}).
 \end{itemize}
 
-\clearpage
-\subsection*{Weak Promoters in Genomic Regions}
-<<bgWP, include=TRUE, results='asis'>>=
-bgWP <- data.frame(Estimate=bgComps[,"coefficients","Weak Promoter"], 
-                   Tstat=bgComps[,"Tstat","Weak Promoter"],
-                   PValue = "",
-                   Sig = aster(bgComps[,"adjP","Weak Promoter"]),
-                   stringsAsFactors=FALSE)
-bgWP$PValue[which(bgComps[,"adjP","Weak Promoter"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Weak Promoter"] > 0.001),"adjP","Weak Promoter"], digits=2)
-bgWP$PValue[which(bgComps[,"adjP","Weak Promoter"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Weak Promoter"] <= 0.001),"adjP","Weak Promoter"], digits=3, scientific=TRUE)
-bgWP$PValue[which(bgComps[,"adjP","Weak Promoter"] == 0)] <- "<2e-16"
-print(xtable(bgWP, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:bgWP", 
-             caption = "Pairwise comparisons for density of \\textbf{Weak Promoters} between genomic regions. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:bgWP}) revealed that:
-\begin{itemize}
-\item Weak Promoters (WPs) are significantly enriched in Start Sites in comparison to all other sampled genomic regions.
-\item WPs were also enriched in 5'UTRs in comparison to Introns, 3'UTRs and Intergenic Regions.
-\item CDS-exons were also enriched for WPs in comparison to Intergenic Regions only.
-\end{itemize}
+\noindent These results also give rise to an alternate for Figure 2 in the submission to Heliyon (Figure \ref{fig:newPaperFig2}).\\
+\\
+We could also do a through comparison across elements, as there appears to be comparable selective pressure between Weak Promoters and Strong Enhancers, but strong pressure against TEs in Active Promoters in comparison to other RE types.
+Weak Enhancers seem to show the the least amount of selective pressure, \textit{except} for those located in CDS exons.\\
+\\
+Additionally, as these measures are now independent a linear model could be applied across all elements \& regions.
+The assumptions seem to hold, but this would rule out the new Figure 2 (below) as these fits were obtained for each element separately.
 
-\clearpage
-\subsection*{Strong Enhancers in Genomic Regions}
-<<bgSE, include=TRUE, results='asis'>>=
-bgSE <- data.frame(Estimate=bgComps[,"coefficients","Strong Enhancer"], 
-                   Tstat=bgComps[,"Tstat","Strong Enhancer"],
-                   PValue = "",
-                   Sig = aster(bgComps[,"adjP","Strong Enhancer"]),
-                   stringsAsFactors=FALSE)
-bgSE$PValue[which(bgComps[,"adjP","Strong Enhancer"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Strong Enhancer"] > 0.001),"adjP","Strong Enhancer"], digits=2)
-bgSE$PValue[which(bgComps[,"adjP","Strong Enhancer"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Strong Enhancer"] <= 0.001),"adjP","Strong Enhancer"], digits=3, scientific=TRUE)
-bgSE$PValue[which(bgComps[,"adjP","Strong Enhancer"] == 0)] <- "<2e-16"
-print(xtable(bgSE, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:bgSE", 
-             caption = "Pairwise comparisons for density of \\textbf{Strong Enhancers} between genomic regions. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:bgSE}) revealed that:
-\begin{itemize}
-\item Strong Enhancers (SEs) are significantly enriched in only in 5'UTRs compared to Exons, 3'UTRs \& Intergenic Regions
-\end{itemize}
 
-\clearpage
-\subsection*{Weak Enhancers in Genomic Regions}
-<<bgWE, include=TRUE, results='asis'>>=
-bgWE <- data.frame(Estimate=bgComps[,"coefficients","Weak Enhancer"], 
-                   Tstat=bgComps[,"Tstat","Weak Enhancer"],
-                   PValue = "",
-                   Sig = aster(bgComps[,"adjP","Weak Enhancer"]),
-                   stringsAsFactors=FALSE)
-bgWE$PValue[which(bgComps[,"adjP","Weak Enhancer"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Weak Enhancer"] > 0.001),"adjP","Weak Enhancer"], digits=2)
-bgWE$PValue[which(bgComps[,"adjP","Weak Enhancer"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Weak Enhancer"] <= 0.001),"adjP","Weak Enhancer"], digits=3, scientific=TRUE)
-bgWE$PValue[which(bgComps[,"adjP","Weak Enhancer"] == 0)] <- "<2e-16"
-print(xtable(bgWE, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:bgWE", 
-             caption = "Pairwise comparisons for density of \\textbf{Weak Enhancers} between genomic regions. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:bgWE}) revealed that:
-\begin{itemize}
-\item Weak Enhancers (WEs) are significantly enriched in 5'UTRs in comparison to Exons, Stop Sites \& 3'UTRs
-\item WEs are enriched in Start Sites, Introns \& Intergenic regions compared to Exons.
-\end{itemize}
-
-\subsection*{Repressors and Insulators in Genomic Regions}
-<<bgRP, include=FALSE>>=
-bgRP <- data.frame(Estimate=bgComps[,"coefficients","Repressor"], 
-                   Tstat=bgComps[,"Tstat","Repressor"],
-                   PValue = "",
-                   Sig = aster(bgComps[,"adjP","Repressor"]),
-                   stringsAsFactors=FALSE)
-bgRP$PValue[which(bgComps[,"adjP","Repressor"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Repressor"] > 0.001),"adjP","Repressor"], digits=2)
-bgRP$PValue[which(bgComps[,"adjP","Repressor"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Repressor"] <= 0.001),"adjP","Repressor"], digits=3, scientific=TRUE)
-bgRP$PValue[which(bgComps[,"adjP","Repressor"] == 0)] <- "<2e-16"
-print(xtable(bgRP, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:bgRP", 
-             caption = "Pairwise comparisons for density of \\textbf{Repressors} between genomic regions. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-<<bgIN, include=FALSE>>=
-bgIN <- data.frame(Estimate=bgComps[,"coefficients","Insulator"], 
-                   Tstat=bgComps[,"Tstat","Insulator"],
-                   PValue = "",
-                   Sig = aster(bgComps[,"adjP","Insulator"]),
-                   stringsAsFactors=FALSE)
-bgIN$PValue[which(bgComps[,"adjP","Insulator"] > 0.001)] <- format(bgComps[which(bgComps[,"adjP","Insulator"] > 0.001),"adjP","Insulator"], digits=2)
-bgIN$PValue[which(bgComps[,"adjP","Insulator"] <= 0.001)] <- format(bgComps[which(bgComps[,"adjP","Insulator"] <= 0.001),"adjP","Insulator"], digits=3, scientific=TRUE)
-bgIN$PValue[which(bgComps[,"adjP","Insulator"] == 0)] <- "<2e-16"
-print(xtable(bgIN, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:bgIN", 
-             caption = "Pairwise comparisons for density of \\textbf{Insulators} between genomic regions. \\textit{Performed after logit transformation of the original proportions. A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
+<<newPaperFig2, echo = FALSE, fig.height=4, fig.cap = 'A possible variation on Figure 2 as it could appear in the paper. The second row plots the conditional probabilities for all regions and all elements.'>>=
+fs <- 8
+c(lmRE, lmTEgivRE) %>% 
+  lapply(summary) %>% 
+  lapply(coef) %>%
+  lapply(as.data.frame) %>%
+  lapply(add_rownames, var = "Region") %>%
+  bind_rows %>%
+  mutate(RE = rep(rep(names(lmRE), each = 5), 2),
+         RE = gsub("_", " ", RE),
+         RE = capwords(RE),
+         #RE = gsub(" ", "\n", RE),
+         RE = factor(RE, levels = unique(RE)),
+         Region = gsub("Region", "", Region),
+         Region = gsub("UTR(3|5)", "\\1'UTR", Region),
+         Region = gsub("CDS", "CDS ", Region),
+         Region = factor(Region, levels = unique(Region)),
+         Class = rep(c("RE in Genomic Region", "RE with TEs"), each = 30)) %>%
+  mutate(pi = binomial()$linkinv(Estimate),
+         lower = binomial()$linkinv(Estimate - `Std. Error`),
+         upper = binomial()$linkinv(Estimate + `Std. Error`)) %>%
+  ggplot(aes(x = Region, y = pi, fill = Region)) + 
+  geom_bar(stat = "identity") +
+  geom_errorbar(aes(ymin = lower, ymax = upper),
+                width= 0.4) +
+  theme_bw() +
+  labs(x = "", y = expression(hat(pi))) +
+  scale_y_continuous(expand=c(0.04,0)) + 
+  facet_grid(Class~RE, scales = "free_y") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(angle = 0, size = fs),
+        axis.text.y = element_text(size = fs-1),
+        strip.text = element_text(size = fs-1),
+        legend.text = element_text(size = fs),
+        legend.title = element_text(size = fs),
+        panel.margin = unit(.004, "npc"),
+        panel.grid = element_line(colour = "grey50")) 
 @
 
-No differences in the distributions of Repressors or Insulators was revealed after pairwise comparisons (all adjusted $p$-values=1).
 
-\clearpage
-\section{The Densities of Transposable Elements Within Regulatory Elements Across Genomic Regions}
-<<setupREObjects>>=
-## The basic approach here will be to perform a series of pairwise comparisons within each region
-## Raw p-values for each comparison will not be adjusted until all comparisons have been performed
-## Setup an array capable of holding each set of comparisons
-teComps <- array(0, dim=c(21, 5, 6), dimnames=list(comps, c("coefficients", "sigma", "Tstat", "Pvalues", "adjP"), regEls))
-teList.glht <- vector("list", 6)
-names(teList.glht) <- regEls
-for (i in 1:6) {
-  teList.glht[[i]] <- glht(lm(logit(bpRETE) ~ 0 + Region, data=subset(fig2, RE==names(teList.glht)[i])), linfct=mcp(Region="Tukey"))
-  teComps[,1:4,i] <- as.matrix(data.frame(summary(teList.glht[[i]], test=adjusted(type="none"))$test[3:6]))
-}
-teComps[,5,] <- p.adjust(teComps[,4,], method="bonf")
-@
-The same approach as for Regulatory Elements within regions was applied for Transposable Elements within Regulatory Elements (i.e. RETEs) across all sampled genomic regions.
-The Bonferroni procedure was also applied to all $p$-values after all comparisons had been performed.
-
-\subsection*{Transposable Elements Across Active Promoters}
-<<teAP, include=TRUE, results='asis'>>=
-teAP <- data.frame(Estimate=teComps[,"coefficients","Active Promoter"], 
-                   Tstat=teComps[,"Tstat","Active Promoter"],
-                   PValue = "",
-                   Sig = aster(teComps[,"adjP","Active Promoter"]),
-                   stringsAsFactors=FALSE)
-teAP$PValue[which(teComps[,"adjP","Active Promoter"] > 0.001)] <- format(teComps[which(teComps[,"adjP","Active Promoter"] > 0.001),"adjP","Active Promoter"], digits=2)
-teAP$PValue[which(teComps[,"adjP","Active Promoter"] <= 0.001)] <- format(teComps[which(teComps[,"adjP","Active Promoter"] <= 0.001),"adjP","Active Promoter"], digits=3, scientific=TRUE)
-teAP$PValue[which(teComps[,"adjP","Active Promoter"] == 0)] <- "<2e-16"
-print(xtable(teAP, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:teAP", 
-             caption = "Pairwise comparisons for density of \\textbf{TEs} within \\textbf{Active Promoters} between genomic regions. \\textit{A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:teAP}) revealed that:
-\begin{itemize}
-\item Active Promoters within 5'UTRs and Start Sites showed a greater density of TEs than APs within all other Genomic Regions, with the exception of the comparison against each other
-\item APs within Exons, Introns showed a greater density of TEs when compared to Stop Sites \& 3'UTRs
-\item APs within Intergenic Regions showed a greater density of TEs in comparison to Stop Sites only.
-\end{itemize}
-
-\clearpage
-\subsection*{Transposable Elements Across Weak Promoters}
-<<teWP, include=TRUE, results='asis'>>=
-teWP <- data.frame(Estimate=teComps[,"coefficients","Weak Promoter"], 
-                   Tstat=teComps[,"Tstat","Weak Promoter"],
-                   PValue = "",
-                   Sig = aster(teComps[,"adjP","Weak Promoter"]),
-                   stringsAsFactors=FALSE)
-teWP$PValue[which(teComps[,"adjP","Weak Promoter"] > 0.001)] <- format(teComps[which(teComps[,"adjP","Weak Promoter"] > 0.001),"adjP","Weak Promoter"], digits=2)
-teWP$PValue[which(teComps[,"adjP","Weak Promoter"] <= 0.001)] <- format(teComps[which(teComps[,"adjP","Weak Promoter"] <= 0.001),"adjP","Weak Promoter"], digits=3, scientific=TRUE)
-teWP$PValue[which(teComps[,"adjP","Weak Promoter"] == 0)] <- "<2e-16"
-print(xtable(teWP, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:teWP", 
-             caption = "Pairwise comparisons for density of \\textbf{TEs} within \\textbf{Weak Promoters} between genomic regions. \\textit{A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:teWP}) revealed that:
-\begin{itemize}
-\item Weak Promoters within 5'UTRs showed a greater density of TEs than WPs within all other Genomic Regions, including the comparison against Start Sites
-\item WPs showed a greater density in Start Sites in comparison to Exons, Stop Sites \& 3'UTRs only
-\item WPs within Exons, Introns \& Intergenic Regions all showed a greater density of TEs when compared to Stop Sites
-\item WPs within 3'UTRs showed an increased density of TEs in comparison to Stop Site.
-\end{itemize}
-
-\clearpage
-\subsection*{Transposable Elements Across Strong Enhancers}
-<<teSE, include=TRUE, results='asis'>>=
-teSE <- data.frame(Estimate=teComps[,"coefficients","Strong Enhancer"], 
-                   Tstat=teComps[,"Tstat","Strong Enhancer"],
-                   PValue = "",
-                   Sig = aster(teComps[,"adjP","Strong Enhancer"]),
-                   stringsAsFactors=FALSE)
-teSE$PValue[which(teComps[,"adjP","Strong Enhancer"] > 0.001)] <- format(teComps[which(teComps[,"adjP","Strong Enhancer"] > 0.001),"adjP","Strong Enhancer"], digits=2)
-teSE$PValue[which(teComps[,"adjP","Strong Enhancer"] <= 0.001)] <- format(teComps[which(teComps[,"adjP","Strong Enhancer"] <= 0.001),"adjP","Strong Enhancer"], digits=3, scientific=TRUE)
-teSE$PValue[which(teComps[,"adjP","Strong Enhancer"] == 0)] <- "<2e-16"
-print(xtable(teSE, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:teSE", 
-             caption = "Pairwise comparisons for density of \\textbf{TEs} within \\textbf{Strong Enhancers} between genomic regions. \\textit{A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:teSE}) revealed that:
-\begin{itemize}
-\item Strong Enhancers (SEs) within 5'UTRs showed a greater density of TEs than SEs within all other Genomic Regions except Introns
-\item SEs showed a greater density in Start Sites in comparison to Exons only
-\item SEs within Introns showed a greater density in comparison to Start Sites, Exons, Stop Sites \& 3'UTRs
-\item SEs within 3'UTRs showed a greater density in comparison to Start Sites, Exons \& Stop Sites
-\item SEs within Intergenic Regions showed a greater density of TEs in comparison to Start Sites, Exons \& Stop Sites
-\end{itemize}
-
-\clearpage
-\subsection*{Transposable Elements Across Weak Enhancers}
-<<teWE, include=TRUE, results='asis'>>=
-teWE <- data.frame(Estimate=teComps[,"coefficients","Weak Enhancer"], 
-                   Tstat=teComps[,"Tstat","Weak Enhancer"],
-                   PValue = "",
-                   Sig = aster(teComps[,"adjP","Weak Enhancer"]),
-                   stringsAsFactors=FALSE)
-teWE$PValue[which(teComps[,"adjP","Weak Enhancer"] > 0.001)] <- format(teComps[which(teComps[,"adjP","Weak Enhancer"] > 0.001),"adjP","Weak Enhancer"], digits=2)
-teWE$PValue[which(teComps[,"adjP","Weak Enhancer"] <= 0.001)] <- format(teComps[which(teComps[,"adjP","Weak Enhancer"] <= 0.001),"adjP","Weak Enhancer"], digits=3, scientific=TRUE)
-teWE$PValue[which(teComps[,"adjP","Weak Enhancer"] == 0)] <- "<2e-16"
-print(xtable(teWE, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:teWE", 
-             caption = "Pairwise comparisons for density of \\textbf{TEs} within \\textbf{Weak Enhancers} between genomic regions. \\textit{A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:teWE}) revealed that:
-\begin{itemize}
-\item Weak Enhancers (WEs) within 5'UTRs showed a greater density of TEs than WEs within all other Genomic Regions except Introns \& Intergenic Regions
-\item WEs showed a greater density in Start Sites in comparison to Exons \& Stop Sites
-\item WEs within Introns showed a greater density in comparison to Start Sites, Exons, Stop Sites \& 3'UTRs
-\item WEs within 3'UTRs showed a greater density in comparison to Start Sites, Exons \& Stop Sites
-\item WEs within Intergenic Regions showed a greater density of TEs in comparison to Start Sites, Exons \& Stop Sites
-\end{itemize}
-
-\clearpage
-\subsection*{Transposable Elements Across Repressors}
-<<teRP, include=TRUE, results='asis'>>=
-teRP <- data.frame(Estimate=teComps[,"coefficients","Repressor"], 
-                   Tstat=teComps[,"Tstat","Repressor"],
-                   PValue = "",
-                   Sig = aster(teComps[,"adjP","Repressor"]),
-                   stringsAsFactors=FALSE)
-teRP$PValue[which(teComps[,"adjP","Repressor"] > 0.001)] <- format(teComps[which(teComps[,"adjP","Repressor"] > 0.001),"adjP","Repressor"], digits=2)
-teRP$PValue[which(teComps[,"adjP","Repressor"] <= 0.001)] <- format(teComps[which(teComps[,"adjP","Repressor"] <= 0.001),"adjP","Repressor"], digits=3, scientific=TRUE)
-teRP$PValue[which(teComps[,"adjP","Repressor"] == 0)] <- "<2e-16"
-print(xtable(teRP, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:teRP", 
-             caption = "Pairwise comparisons for density of \\textbf{TEs} within \\textbf{Repressors} between genomic regions. \\textit{A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:teRP}) revealed that:
-\begin{itemize}
-\item Repressors (RPs) within 5'UTRs showed a greater density of TEs than RPs within Start Sites, Exons \& Stop Sites
-\item RPs within Introns showed a greater density in comparison to Start Sites, Exons \& Stop Sites
-\item RPs within 3'UTRs showed a greater density in comparison to Start Sites, Exons \& Stop Sites
-\item RPs within Intergenic Regions showed a greater density of TEs in comparison to Start Sites, Exons \& Stop Sites
-\end{itemize}
-
-\clearpage
-\subsection*{Transposable Elements Across Insulators}
-<<teIN, include=TRUE, results='asis'>>=
-teIN <- data.frame(Estimate=teComps[,"coefficients","Insulator"], 
-                   Tstat=teComps[,"Tstat","Insulator"],
-                   PValue = "",
-                   Sig = aster(teComps[,"adjP","Insulator"]),
-                   stringsAsFactors=FALSE)
-teIN$PValue[which(teComps[,"adjP","Insulator"] > 0.001)] <- format(teComps[which(teComps[,"adjP","Insulator"] > 0.001),"adjP","Insulator"], digits=2)
-teIN$PValue[which(teComps[,"adjP","Insulator"] <= 0.001)] <- format(teComps[which(teComps[,"adjP","Insulator"] <= 0.001),"adjP","Insulator"], digits=3, scientific=TRUE)
-teIN$PValue[which(teComps[,"adjP","Insulator"] == 0)] <- "<2e-16"
-print(xtable(teIN, 
-             digits = c(0,3,3,0,0), 
-             align = c("r","r","r","r","l"),
-             label = "tab:teIN", 
-             caption = "Pairwise comparisons for density of \\textbf{TEs} within \\textbf{Insulators} between genomic regions. \\textit{A positive value for the Estimate equates to a higher density in the first genomic region, whereas a negative value equates to a higher density in the second genomic region.}"), 
-      caption.placement="top")
-@
-Pairwise comparisons (Table \ref{tab:teIN}) revealed that:
-\begin{itemize}
-\item Insulators (INs) within 5'UTRs showed a greater density of TEs than INs within Start Sites, Exons \& Stop Sites
-\item INs within Introns showed a greater density in comparison to Start Sites, Exons \& Stop Sites
-\item INs within 3'UTRs showed a greater density in comparison to Start Sites, Exons \& Stop Sites
-\item INs within Intergenic Regions showed a greater density of TEs in comparison to Start Sites, Exons \& Stop Sites
-\end{itemize}
-
-\section{Fig 2a - Conclusion}
-Amongst the avalanche of data presented above, the striking pattern became evident that non-coding regions showed a greater density of Transposable Elements within many Regulatory Elements, most notably for Insulators, Repressors \& Enhancers.
-In general, there was also minimal significant difference in the densities of TEs across any of the coding regions.
-
-%------------------------------------
-% Also compare across tissues
-%------------------------------------
-
+ 
 \end{document}

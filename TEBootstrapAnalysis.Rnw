@@ -59,7 +59,7 @@ pdf.options(useDingbats=TRUE)
 \subsection*{Data Loading}
 
 <<loadData, cache=TRUE>>=
-tpmFile <- file.path("data", "new_whole_gene_expression_dataset.txt")
+tpmFile <- file.path("data", "Dec_log2_gene_expression_dataset.txt")
 tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
   dplyr::select(ID, length, contains("TPM"), contains("IDs")) %>%
   tbl_df
