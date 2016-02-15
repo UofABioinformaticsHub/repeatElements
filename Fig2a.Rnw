@@ -7,13 +7,15 @@
 \usepackage{fullpage}
 \usepackage{pdflscape}
 \usepackage{placeins}
+\usepackage{amsmath}
+\usepackage{amssymb}
 
 \begin{document}
 
 \title{Data for Figure 2}
 \author{Steve Pederson\\
-        Adelaide University\\
-        Bioinformatics Centre}
+Adelaide University\\
+Bioinformatics Centre}
 \maketitle
 
 <<loadPackages, message=FALSE, warning=FALSE>>=
@@ -26,6 +28,7 @@ library(sandwich)
 library(car)
 library(boot)
 library(dplyr)
+library(reshape2)
 library(readr)
 library(knitr)
 library(magrittr)
@@ -39,9 +42,25 @@ opts_knit$set(self.contained=FALSE)
 opts_chunk$set(fig.align='center', fig.show='as.is', crop=TRUE, 
                include=TRUE, echo=TRUE, results = 'hide',
                warning = FALSE, message = FALSE)
-Sys.setenv(TEXINPUTS=getwd(), BIBINPUTS=getwd(), BSTINPUTS=getwd())
 pdf.options(useDingbats=TRUE)
 @
+
+\section{Brief Notes}
+This reworking addresses:
+\begin{itemize}
+  \item Tests for normality of data
+  \item Tests for homoscedasticity (i.e. equal variance across samples)
+  \item The current Figure 2 from the Heliyon submission is represented as Figure \ref{fig:paperFig2}
+  \item Tables \ref{tab:RETEActivepromoter} to \ref{tab:RETEInsulator} form corrected versions of Tables S1 to S7 in the current Heliyon submission.\\
+\end{itemize}
+
+\noindent An alternative approach to the data, using conditional probabilities is also contained as the final section:
+\begin{itemize}
+  \item This presents an alternative analysis of the probabilities of a nucleotide being a TE, given it is within an RE.          This effectively models $p(TE|RE)$ for a base within each region as a set of conditional probabilities.
+        Comparing between regions and elements gives a picture of tolerance and resistance to TE inclusion.
+  \item An alternative suggestion for Figure 2 from the submission, instead using the conditional probabilities is offered as Figure \ref{fig:plotTEgivRE}.
+  \item An alternative to Tables S1 to S6 could be the complete results from this analysis as shown in Table \ref{tab:condLm}, with pairwise comparisons presented in Figure \ref{fig:plotConfintCond}.
+\end{itemize}
 
 \section{Loading \& Transforming the Data}
 <<loadData>>=
@@ -106,25 +125,54 @@ This test for homoscedasticity was performed using Levene's Test, with results g
 Levene's test is a test for the null hypothesis $H_0: \sigma_1 = \sigma_2 = \ldots = \sigma_6$, with the alternative that the variances are not all equal.
 No evidence of the inequality of variances was detected within any region, and this gives initial support to being able to use linear regression on this data. \\
 \\
-A linear regression model was then fit for each separate RE, and Normal QQ plots were inspected for approximate normality (Figure \ref{fig:qqNormRE}).
-Despite a few outlier points being evident, no strong evidence for violation of this assumption were detected, and any subsequent results may be considered meaningful.
+A linear regression model was then fit for each separate RE, and the Shapiro-Wilk test used to test the assumption of Normality (Table \ref{tab:shapiroRE}).
+No evidence of this assumption being violated was noted for any RE.
 
-<<leveneRE, warning=FALSE, echo=FALSE, include=TRUE, results='asis'>>=
-fig2 %>%
+<<leveneRE, warning=FALSE, echo=1, include=TRUE, results='asis'>>=
+leveneRE <- fig2 %>%
   extract2("RE") %>%
   levels() %>%
-  lapply(function(x){data.frame(RE = x,
-                                leveneTest(logitRE ~ Region, 
-                                data = filter(fig2, RE == x), 
-                                center = mean)[1,])}) %>%
+  lapply(function(x){
+    mod <- lm(logitRE ~ Region, 
+              data = filter(fig2, RE == x))
+    data.frame(RE = x,
+               leveneTest(mod, center = "mean")[1,])}) %>%
   bind_rows %>%
-  set_colnames(c("Regulatory Element", "DF", "F Statistic", "P Value")) %>%
+  set_colnames(c("Regulatory Element", "DF", "F Statistic", "P Value"))
+leveneRE %>%
+  mutate(`Regulatory Element` = gsub("_", " ", `Regulatory Element`),
+         `Regulatory Element` = capwords(`Regulatory Element`)) %>%
   xtable(label = "tab:leveneRE",
          caption = paste("Levene's Test for homogeneity of variance across regions within each RE.",
                          "The null hypothesis was not rejected in any RE, ",
                          "thus we can conclude that variances are equal across regions"),
          digits = c(0, 0, 0, 3, 3),
          align = "llrrr") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+<<shapiroRE, warning=FALSE, echo=1, include=TRUE, results='asis'>>=
+shapiroRE <- fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  lapply(function(x){
+    mod <- lm(logitRE ~ Region, 
+              data = filter(fig2, RE == x))
+    data.frame(RE = x,
+               as.data.frame(shapiro.test(mod$residuals)[c("statistic", "p.value")]))}) %>%
+  bind_rows %>%
+  set_colnames(c("Regulatory Element", "W Statistic", "P Value")) %>%
+  mutate(`Regulatory Element` = gsub("_", " ", `Regulatory Element`),
+         `Regulatory Element` = capwords(`Regulatory Element`)) 
+shapiroRE %>%
+  xtable(label = "tab:shapiroRE",
+         caption = paste("Shapiro-Wilk Test for normality for each RE.",
+                         "The null hypothesis was not rejected in any RE, ",
+                         "thus normality can be assumed across all regions"),
+         digits = c(0, 0, 3, 3),
+         align = "llrr") %>%
   print(include.rownames = FALSE,
         caption.placement = "top")
 @
@@ -140,18 +188,6 @@ lmRE <- fig2 %>%
   simplify = FALSE)
 @
 
-
-<<qqNormRE, echo = FALSE, fig.height=6, fig.cap='Normal QQ plots for the residuals from each Regulatory Element.'>>=
-par(mfrow = c(2, 3))
-names(lmRE) %>%
-  lapply(function(x){
-         plot(lmRE[[x]],
-          which = 2,
-          caption = NA,
-          main = paste0(x, ":\n Normal Q-Q"))
-  })
-par(mfrow = c(1, 1))
-@
 
 \FloatBarrier
 \subsection{Results of Analysis for Regulatory Elements}
@@ -182,30 +218,30 @@ resRE <- names(lmRE) %>%
 
 <<printResRE, echo=FALSE, include=TRUE, results='asis'>>=
 xtabRE <- invisible(levels(fig2$RE) %>%
-  lapply(function(x){
-    resRE %>%
-      filter(RE == x) %>%
-      dplyr::select(Comparison, Estimate, 
-                    `T-statistic` = T, 
-                    `p-value` = adjP, 
-                    ` ` = Sig) %>%
-      xtable(label = gsub("_", "", paste0("tab:RE", x)),
-             digits = c(0, 0, 3, 3, -2, 0),
-             align = "llrrrl",
-             caption = paste("Pairwise comparisons for density of \\textbf{", 
-                             capwords(gsub("_", " ", x)),
-                             "Elements} between genomic regions.",
-                             "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
-                             "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
-                             "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
-                             "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
-  }) %>%
-    lapply(print,
-           include.rownames = FALSE,
-           caption.placement = "top",
-           print.results = FALSE) %>%
-  unlist %>%
-  (function(x){gsub("(T|p)-", "$\\1$-",x)}))
+                      lapply(function(x){
+                        resRE %>%
+                          filter(RE == x) %>%
+                          dplyr::select(Comparison, Estimate, 
+                                        `T-statistic` = T, 
+                                        `p-value` = adjP, 
+                                        ` ` = Sig) %>%
+                          xtable(label = gsub("_", "", paste0("tab:RE", x)),
+                                 digits = c(0, 0, 3, 3, -2, 0),
+                                 align = "llrrrl",
+                                 caption = paste("Pairwise comparisons for density of \\textbf{", 
+                                                 capwords(gsub("_", " ", x)),
+                                                 "Elements} between genomic regions.",
+                                                 "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
+                                                 "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
+                                                 "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
+                                                 "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
+                      }) %>%
+                      lapply(print,
+                             include.rownames = FALSE,
+                             caption.placement = "top",
+                             print.results = FALSE) %>%
+                      unlist %>%
+                      (function(x){gsub("(T|p)-", "$\\1$-",x)}))
 cat(xtabRE)
 @
 
@@ -221,26 +257,53 @@ Inspection of the raw data in Figure \ref{fig:plotRawRETE} revealed lower than u
 Weak evidence was also suggestive of heteroscedasticity for Weak Enhancer samples ($p = 0.074$).
 To counteract these findings, the sandwich estimator was used for the variance-covariance matrix in pairwise comparisons for all RETEs.
 \\
-A linear regression model was then fit for each separate RETE, and Normal QQ plots were inspected for approximate normality (Figure \ref{fig:qqNormRETE}).
-Once again, despite a few outlier points being evident, no strong evidence for violation of this assumption were detected, and any subsequent results may be considered meaningful.
+The Shapiro-Wilk test for Normality was once again applied, with no evidence found of this assumption being violated.
 
-<<leveneRETE, warning=FALSE, echo=FALSE, include=TRUE, results='asis'>>=
-fig2 %>%
+<<leveneRETE, warning=FALSE, echo=1, include=TRUE, results='asis'>>=
+leveneRETE <- fig2 %>%
   extract2("RE") %>%
   levels() %>%
   lapply(function(x){data.frame(RE = x,
                                 leveneTest(logitRETE ~ Region, 
-                                data = filter(fig2, RE == x), 
-                                center = mean)[1,])}) %>%
+                                           data = filter(fig2, RE == x), 
+                                           center = mean)[1,])}) %>%
   bind_rows %>%
   set_colnames(c("Regulatory Element", "DF", "F Statistic", "P Value")) %>%
-    mutate(` ` = aster(`P Value`)) %>%
+  mutate(`Regulatory Element` = gsub("_", " ", `Regulatory Element`),
+         `Regulatory Element` = capwords(`Regulatory Element`),
+         ` ` = aster(`P Value`)) 
+leveneRETE %>%
   xtable(label = "tab:leveneRETE",
-         caption = paste("Levene's Test for homogeneity of variance across regions within each RE.",
+         caption = paste("Levene's Test for homogeneity of variance across regions within each RETE.",
                          "The null hypothesis was rejected in Active Promoters,",
                          "with further weak evidence seen in Weak Enhancers."),
          digits = c(0, 0, 0, 3, 3, 0),
          align = "llrrrl") %>%
+  print(include.rownames = FALSE,
+        caption.placement = "top")
+@
+
+
+<<shapiroRETE, warning=FALSE, echo=1, include=TRUE, results='asis'>>=
+shapiroRETE <- fig2 %>%
+  extract2("RE") %>%
+  levels() %>%
+  lapply(function(x){
+    mod <- lm(logitRETE ~ Region, 
+              data = filter(fig2, RE == x))
+    data.frame(RE = x,
+               as.data.frame(shapiro.test(mod$residuals)[c("statistic", "p.value")]))}) %>%
+  bind_rows %>%
+  set_colnames(c("Regulatory Element", "W Statistic", "P Value")) %>%
+  mutate(`Regulatory Element` = gsub("_", " ", `Regulatory Element`),
+         `Regulatory Element` = capwords(`Regulatory Element`)) 
+shapiroRETE %>%
+  xtable(label = "tab:shapiroRETE",
+         caption = paste("Shapiro-Wilk Test for normality for each RETE.",
+                         "The null hypothesis was not rejected in any RE, ",
+                         "thus normality can be assumed across all regions"),
+         digits = c(0, 0, 3, 3),
+         align = "llrr") %>%
   print(include.rownames = FALSE,
         caption.placement = "top")
 @
@@ -256,18 +319,6 @@ lmRETE <- fig2 %>%
   simplify = FALSE)
 @
 
-
-<<qqNormRETE, echo = FALSE, fig.height=6, fig.cap='Normal QQ plots for the residuals from each Regulatory Element.'>>=
-par(mfrow = c(2, 3))
-names(lmRETE) %>%
-  lapply(function(x){
-         plot(lmRETE[[x]],
-          which = 2,
-          caption = NA,
-          main = paste0(x, ":\n Normal Q-Q"))
-  })
-par(mfrow = c(1, 1))
-@
 
 \FloatBarrier
 \subsection{Results of Analysis for Transposable Elements Within Regulatory Elements}
@@ -300,30 +351,30 @@ resRETE <- names(lmRETE) %>%
 
 <<printResRETE, echo=FALSE, include=TRUE, results='asis'>>=
 xtabRETE <- invisible(levels(fig2$RE) %>%
-  lapply(function(x){
-    resRETE %>%
-      filter(RE == x) %>%
-      dplyr::select(Comparison, Estimate, 
-                    `T-statistic` = T, 
-                    `p-value` = adjP, 
-                    ` ` = Sig) %>%
-      xtable(label = gsub("_", "", paste0("tab:RETE", x)),
-             digits = c(0, 0, 3, 3, -2, 0),
-             align = "llrrrl",
-             caption = paste("Pairwise comparisons for density of TEs within \\textbf{", 
-                             capwords(gsub("_", " ", x)),
-                             "Elements} between genomic regions.",
-                             "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
-                             "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
-                             "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
-                             "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
-  }) %>%
-    lapply(print,
-           include.rownames = FALSE,
-           caption.placement = "top",
-           print.results = FALSE) %>%
-  unlist %>%
-  (function(x){gsub("(T|p)-", "$\\1$-",x)}))
+                        lapply(function(x){
+                          resRETE %>%
+                            filter(RE == x) %>%
+                            dplyr::select(Comparison, Estimate, 
+                                          `T-statistic` = T, 
+                                          `p-value` = adjP, 
+                                          ` ` = Sig) %>%
+                            xtable(label = gsub("_", "", paste0("tab:RETE", x)),
+                                   digits = c(0, 0, 3, 3, -2, 0),
+                                   align = "llrrrl",
+                                   caption = paste("Pairwise comparisons for density of TEs within \\textbf{", 
+                                                   capwords(gsub("_", " ", x)),
+                                                   "Elements} between genomic regions.",
+                                                   "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
+                                                   "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
+                                                   "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
+                                                   "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
+                        }) %>%
+                        lapply(print,
+                               include.rownames = FALSE,
+                               caption.placement = "top",
+                               print.results = FALSE) %>%
+                        unlist %>%
+                        (function(x){gsub("(T|p)-", "$\\1$-",x)}))
 cat(xtabRETE)
 @
 
@@ -373,7 +424,16 @@ c(lmRE, lmRETE) %>%
 \FloatBarrier
 \section{Analysis of Transposable Elements Given Repeat Elements}
 One further exploration not undertaken before is the analysis of the conditional probabilities for a base being a TE, \textit{given that the base belongs to a regulatory element}, i.e. $\pi = p(TE|RE)$
-The raw data was plotted in Figure \ref{fig:plotTEgivRE} with some potentially interesting patterns being clearly evident.
+These probabilities were plotted in Figure \ref{fig:plotTEgivRE} with some potentially interesting patterns being clearly evident.\\
+Raw values for $p(TE|RE)$ were generated using:
+\begin{align*}
+p(RE) &= \frac{\text{number of bases which are REs}}{\text{number of bases in genomic region}}\\
+p(RETE) &= \frac{\text{number of bases which are RETEs}}{\text{number of bases in genomic region}}\\
+\therefore \quad &\text{since the number of bases in the genomic regions is constant}\\
+p(TE | RE) &= \frac{\text{number of bases which are RETEs}}{\text{number of bases which are REs}}\\
+           &= \frac{p(RETE)}{p(RE)}\\
+\end{align*}
+
 
 <<addConditionalTerm>>=
 fig2 %<>% 
@@ -382,192 +442,282 @@ fig2 %<>%
 @
 
 
-<<plotTEgivRE, echo=FALSE, fig.height=4, fig.cap='Logit transformed proportions across all 6 tissues for the probability of a base being a Transposable Element, given that the base is in a Regulatory Element'>>=
-fig2 %>% 
-  ggplot(aes(x = Region, y = logitTEgivRE, fill = Region)) + 
-  geom_boxplot() + 
-  facet_wrap(~RE) +
-  theme_bw() +
-  labs(y = expression(paste("logit(",pi[TE], "|", pi[RE], ")"))) +
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank())
-@
-
-\subsection{Initial Model Checks}
-Levene's test was once again used to assess homoscedasticity between regions for each measurement of $p(TE | RE)$.
-Evidence of heteroscedasticity was again detected in the samples for Active Promoter regions (Table \ref{tab:leveneTEgivRE}; $p = 0.002$).
-Inspection of the raw data in Figure \ref{fig:plotTEgivRE} revealed lower than usual variance between measures in the CDS-exon RETE values and this is the likely source of this significant result.
-Weak evidence was also suggestive of heteroscedasticity for Repressed Region samples ($p = 0.067$).
-To counteract these findings, the sandwich estimator was used for the variance-covariance matrix in pairwise comparisons for all RETEs.
-\\
-A linear regression model was then fit for each separate RETE, and Normal QQ plots were inspected for approximate normality (Figure \ref{fig:qqNormTEgivRE}).
-Once again, despite a few outlier points being evident, no strong evidence for violation of this assumption were detected, and any subsequent results may be considered meaningful.
-
-<<leveneTEgivRE, warning=FALSE, echo=FALSE, include=TRUE, results='asis'>>=
-fig2 %>%
-  extract2("RE") %>%
-  levels() %>%
-  lapply(function(x){data.frame(RE = x,
-                                leveneTest(logitTEgivRE ~ Region, 
-                                data = filter(fig2, RE == x), 
-                                center = mean)[1,])}) %>%
-  bind_rows %>%
-  set_colnames(c("Regulatory Element", "DF", "F Statistic", "P Value")) %>%
-    mutate(` ` = aster(`P Value`)) %>%
-  xtable(label = "tab:leveneTEgivRE",
-         caption = paste("Levene's Test for homogeneity of variance across measures for $p(TE | RE)$",
-                         "The null hypothesis was rejected in Active Promoters,",
-                         "with further weak evidence seen in Repressed Regions."),
-         digits = c(0, 0, 0, 3, 3, 0),
-         align = "llrrrl") %>%
-  print(include.rownames = FALSE,
-        caption.placement = "top")
-@
-
-
-<<lmTEgivRE>>=
-lmTEgivRE <- fig2 %>%
-  extract2("RE") %>%
-  levels() %>%
-  sapply(function(x){
-    lm(logitTEgivRE ~ 0 + Region, data = filter(fig2, RE == x))
-  },
-  simplify = FALSE)
-@
-
-
-<<qqNormTEgivRE, echo = FALSE, fig.height=6, fig.cap='Normal QQ plots for the residuals from the conditional model for Regulatory Element.'>>=
-par(mfrow = c(2, 3))
-names(lmRETE) %>%
-  lapply(function(x){
-         plot(lmTEgivRE[[x]],
-          which = 2,
-          caption = NA,
-          main = paste0(x, ":\n Normal Q-Q"))
-  })
-par(mfrow = c(1, 1))
-@
-
-\FloatBarrier
-\subsection{Results of Analysis for Conditional Probabilities}
-The test being used to detect any differing conditional probabilities across the genomic regions will again be Tukey's Honestly Significant Difference (HSD), which depends on the assumptions of normality and homoscedasticity performed above.
-As also mentioned above, the sandwich estimator for the variance-covariance matrix was used in all pairwise comparisons to counteract any effects due to heteroscedasticity. \\
-\\
-Comparisons across regions will be performed separately for each RE, and the $p$-values for the complete set of $p$-values obtained will be adjusted for multiple comparisons using Bonferroni's methods to control the FWER across the entire experiment.
-All results from pairwise comparisons are presented in Tables \ref{tab:TEgivREActivepromoter} to \ref{tab:TEgivREInsulator}.
-
-<<resTEgivRE>>=
-resTEgivRE <- names(lmTEgivRE) %>%
-  lapply(function(x){
-    glht(lmTEgivRE[[x]], linfct = mcp(Region = "Tukey"), vcov = sandwich) %>%
-      summary(adjusted(type = "none")) %>%
-      extract2("test") %>%
-      extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
-      as.data.frame %>%
-      add_rownames("Comparison") %>%
-      mutate(RE = x)}) %>%
-  bind_rows %>%
-  dplyr::select(RE, Comparison, 
-                Estimate = coefficients,
-                Std.Error = sigma,
-                T = tstat,
-                P = pvalues) %>%
-  mutate(adjP = p.adjust(P, "bonferroni"),
-         Sig = aster(adjP),
-         Comparison = gsub("UTR(3|5)", "\\1'UTR", Comparison))
-@
-
-<<printResTEgivRE, echo=FALSE, include=TRUE, results='asis'>>=
-xtabTEgivRE <- invisible(levels(fig2$RE) %>%
-  lapply(function(x){
-    resTEgivRE %>%
-      filter(RE == x) %>%
-      dplyr::select(Comparison, Estimate, 
-                    `T-statistic` = T, 
-                    `p-value` = adjP, 
-                    ` ` = Sig) %>%
-      xtable(label = gsub("_", "", paste0("tab:TEgivRE", x)),
-             digits = c(0, 0, 3, 3, -2, 0),
-             align = "llrrrl",
-             caption = paste("Pairwise comparisons for probability of a base being a TE given it is within \\textbf{", 
-                             capwords(gsub("_", " ", x)),
-                             "Elements}.",
-                             "Pairwise comparisons were performed using Tukey's HSD on the logit-transformed proportions of bases derived from the six sampled tissues.",
-                             "The FWER was controlled using Bonferroni's adjustment on the set of $p$-values across all elements, and all $p$-values presented have been adjusted by this method.",
-                             "A positive value in the Estimate column corresponds to a higher proportion in the first of the two genomic regions within the comparisons, whilst a negative value corresponds to a higher proportion in the second of the two regions.",
-                             "Any significant values are indicated using asterisks as per the standard conventions of R.")) 
-  }) %>%
-    lapply(print,
-           include.rownames = FALSE,
-           caption.placement = "top",
-           print.results = FALSE) %>%
-  unlist %>%
-  (function(x){gsub("(T|p)-", "$\\1$-",x)}))
-cat(xtabTEgivRE)
-@
-
-\FloatBarrier
-\subsection{Summary of Conditional Analysis}
-Combining the data from Tables \ref{tab:TEgivREActivepromoter} to \ref{tab:TEgivREInsulator} and Figure \ref{fig:plotTEgivRE}:
-\begin{itemize}
-  \item The conclusion can be drawn that there is strong selection against TEs within REs located in CDS exons in comparison to every element in every genomic region.
-  \item The selective pressure against TE seems to be slightly weaker in both promoter regions for CDS exons when compared to other element types.
-  \item With the exception of Active Promoters, there is selective pressure against TEs located in the 3'UTR in comparison to all regions except CDS exons. 
-  The lack of significance in Active Promoters is only in comparison to 5'UTRs, and this is likely to be a Type 2 error as the raw $p =$ \Sexpr{format(filter(resTEgivRE, grepl("3'UTR", Comparison), adjP > 0.05)$P, digits = 4, scientific = TRUE)}
-  \item There is no evidence for any differing selective pressure acting on TEs between any of the REs located in 5'UTRs and CDS introns for any of the elements
-  \item For Polycomb Repressed Regions and Insulators located in Intergenic regions, there was an increase in probability of being a TE when compared to CDS introns ($p$ = \Sexpr{format(filter(resTEgivRE, grepl("tron", Comparison), grepl("Intergenic", Comparison), RE == "Repressed_region")$adjP, digits = 3, scientific = TRUE)} \& $p$ = \Sexpr{format(filter(resTEgivRE, grepl("tron", Comparison), grepl("Intergenic", Comparison), RE == "Insulator")$adjP, digits = 3)} respectively), perhaps indicating even less selective pressure
-  \item This pattern of an increased probability of being a TE  was also evident for Repressed Regions located in Intergenic and 5'UTRs ($p$ = \Sexpr{format(filter(resTEgivRE, grepl("5'UTR", Comparison), grepl("Intergenic", Comparison), RE == "Repressed_region")$adjP, digits = 3, scientific = TRUE)}).
-\end{itemize}
-
-\noindent These results also give rise to an alternate for Figure 2 in the submission to Heliyon (Figure \ref{fig:newPaperFig2}).\\
-\\
-We could also do a through comparison across elements, as there appears to be comparable selective pressure between Weak Promoters and Strong Enhancers, but strong pressure against TEs in Active Promoters in comparison to other RE types.
-Weak Enhancers seem to show the the least amount of selective pressure, \textit{except} for those located in CDS exons.\\
-\\
-Additionally, as these measures are now independent a linear model could be applied across all elements \& regions.
-The assumptions seem to hold, but this would rule out the new Figure 2 (below) as these fits were obtained for each element separately.
-
-
-<<newPaperFig2, echo = FALSE, fig.height=4, fig.cap = 'A possible variation on Figure 2 as it could appear in the paper. The second row plots the conditional probabilities for all regions and all elements.'>>=
+<<plotTEgivRE, echo=FALSE, fig.height=4, fig.cap='The estimated probabilities of a base being a Repeat Element with each genomic region, and the estimated probabilities of a base within each Repeat Element being a Transposable Element. Error bars indicate one standard error.'>>=
 fs <- 8
-c(lmRE, lmTEgivRE) %>% 
-  lapply(summary) %>% 
-  lapply(coef) %>%
-  lapply(as.data.frame) %>%
-  lapply(add_rownames, var = "Region") %>%
-  bind_rows %>%
-  mutate(RE = rep(rep(names(lmRE), each = 5), 2),
-         RE = gsub("_", " ", RE),
-         RE = capwords(RE),
-         #RE = gsub(" ", "\n", RE),
-         RE = factor(RE, levels = unique(RE)),
-         Region = gsub("Region", "", Region),
-         Region = gsub("UTR(3|5)", "\\1'UTR", Region),
+fig2 %>% 
+  group_by(Region, RE) %>% 
+  summarise(n = n(),
+            mnRE = mean(logitRE),
+            seRE = sd(logitRE) / sqrt(n),
+            mnTEgivRE = mean(logitTEgivRE), 
+            seTEgivRE = sd(logitTEgivRE) / sqrt(n)) %>% 
+  ungroup %>%
+  mutate(lowerRE = mnRE - seRE,
+         lowerTEgivRE = mnTEgivRE - seTEgivRE,
+         upperRE = mnRE + seRE,
+         upperTEgivRE = mnTEgivRE + seTEgivRE) %>%
+  (function(x){
+    d1 = melt(x, id.vars = c("Region", "RE"),
+              measure.vars = c("mnRE", "mnTEgivRE"),
+              variable.name = "Class", 
+              value.name = "logitPi")
+    d2 = melt(x, id.vars = c("Region", "RE"),
+              measure.vars = c("lowerRE", "lowerTEgivRE"),
+              variable.name = "Class", 
+              value.name = "logitLower")
+    d3 = melt(x, id.vars = c("Region", "RE"),
+              measure.vars = c("upperRE", "upperTEgivRE"),
+              variable.name = "Class", 
+              value.name = "logitUpper")
+    cbind(d1, logitLower = d2$logitLower, logitUpper = d3$logitUpper)
+  }) %>%
+  mutate(Region = gsub("UTR(3|5)", "\\1'UTR", Region),
          Region = gsub("CDS", "CDS ", Region),
          Region = factor(Region, levels = unique(Region)),
-         Class = rep(c("RE in Genomic Region", "RE with TEs"), each = 30)) %>%
-  mutate(pi = binomial()$linkinv(Estimate),
-         lower = binomial()$linkinv(Estimate - `Std. Error`),
-         upper = binomial()$linkinv(Estimate + `Std. Error`)) %>%
+         RE = gsub("_", " ", RE),
+         RE = capwords(RE),
+         RE = factor(RE, levels = unique(RE)),
+         Class = gsub("mnRE", "p(RE)", Class),
+         Class = gsub("mnTEgivRE", "p(TE|RE)", Class),
+         pi = binomial()$linkinv(logitPi),
+         lower = binomial()$linkinv(logitLower),
+         upper = binomial()$linkinv(logitUpper)) %>%
   ggplot(aes(x = Region, y = pi, fill = Region)) + 
-  geom_bar(stat = "identity") +
+  geom_bar(stat = "identity") + 
   geom_errorbar(aes(ymin = lower, ymax = upper),
-                width= 0.4) +
+                width = 0.4) +
+  facet_grid(Class~RE, scale = "free_y") +
+  scale_y_continuous(expand = c(0.02,0)) +
   theme_bw() +
-  labs(x = "", y = expression(hat(pi))) +
-  scale_y_continuous(expand=c(0.04,0)) + 
-  facet_grid(Class~RE, scales = "free_y") +
+  labs(x = c(), y = expression(hat(pi))) +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         axis.title.y = element_text(angle = 0, size = fs),
         axis.text.y = element_text(size = fs-1),
         strip.text = element_text(size = fs-1),
         legend.text = element_text(size = fs),
-        legend.title = element_text(size = fs),
+        legend.title = element_text(size = fs, 
+                                    face = "bold"),
+        legend.position = "bottom",
         panel.margin = unit(.004, "npc"),
         panel.grid = element_line(colour = "grey50")) 
 @
 
+\subsection{Initial Model Checks}
+As these conditional probabilities can be considered to be independent, the entire dataset for conditional probabilities was fitted using a linear regression model.
 
- 
+<<lmCond>>=
+lmCond <- lm(logitTEgivRE ~ Region*RE, fig2)
+@
+
+Levene's test was once again used to assess homoscedasticity for the model with this assumption being violated ($p =$ \Sexpr{format(leveneTest(lmCond, center = "mean")$`Pr(>F)`[1], digits =3, scientific = TRUE)}).
+As this violation will only affect the standard errors of a linear model, not the estimated values, robust standard errors will be again utilised via the sandwich estimator.\\
+\\
+The Shapiro-Wilk test was again used to test normality ($p=$ \Sexpr{format(shapiro.test(lmCond$residuals)$p.value, digits = 3)}), and this assumption was again found to be valid.
+
+\subsection{Results of Analysis for Conditional Probabilities}
+A linear regression model was fit to the conditional probability data, using Active Promoters as the baseline element, and 5' UTR regions as the baseline genomic region.
+Robust standard errors were estimated using the sandwich estimator, and all $p$-values were adjusted using the Bonferroni adjustment (Table \ref{tab:condLm}).
+
+<<tableLmCond, echo=1, results='asis'>>=
+resLmCond <- lmCond %>% 
+  glht(vcov = sandwich) %>%
+  summary(test = adjusted("none")) %>%
+  extract2("test") %>%
+  extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+  as.data.frame() %>%
+  add_rownames("Coefficient") %>%
+  rename(Estimate = coefficients,
+         `Std. Error` = sigma,
+         T = tstat,
+         P = pvalues) %>%
+  mutate(Coefficient = gsub("Region", "", Coefficient),
+         Coefficient = gsub("RE", "", Coefficient),
+         Coefficient = gsub("UTR(3|5)", "\\1'UTR", Coefficient),
+         Coefficient = gsub("_", " ", Coefficient),
+         Coefficient = capwords(Coefficient),
+         Coefficient = gsub("CDS", "CDS ", Coefficient),
+         adjP = p.adjust(P, "bonferroni"),
+         ` ` = aster(adjP)) 
+resLmCond %>%
+  xtable(caption = paste("Results from analysis of conditional probabilities across all regulatory elements and genomic regions using a linear regression model.",
+                         "The values being analysed are the logit transformed proportions of bases, such that a positive value corresponds to an increase in probability.",
+                         "Bonferroni's adjustment has been applied to adjusted $p$-values, and the sandwich estimator was utilised for robust standard error estimation."),
+         label = "tab:condLm",
+         digits = c(0, 0, 3, 3, 3, -2, -2, 0),
+         align = "llrrrrrl") %>%
+  print(caption.placement = "top",
+        include.rownames = FALSE,
+        booktabs = TRUE,
+        add.to.row = list(pos = list(5, 10, 14, 18, 22, 26),
+                          command = rep("\\midrule\\\\[-3mm]", 6)))
+@
+
+
+\subsection{Summary of Conditional Analysis}
+
+If a lower $p(TE|RE)$ is considered to be an increase in selective pressure for the inclusion of a TE within that RE or Region, it can be clearly seen from the results in Table \ref{tab:condLm} and Figure \ref{fig:plotTEgivRE}
+\begin{itemize}
+  \item In Active Promoters, CDS exons showed the strongest selective pressure, with slight evidence of a more ready acceptance of TEs within Intergenic Active Promoters ($p=$5.30E-02).
+  \item All regions show considerably less selective pressure (i.e. more ready acceptance of TEs) than Active Promoters (all adjusted $p < 2^{-16}$)
+  \item Weak Enhancers were clearly subject to the least selective pressure against incorporation of TEs (i.e. the highest values for $p(TE|RE)$)
+  \item CDS exons are the strongest exception to these primary observations, with a comparative increase in selective pressure in comparison to Active Promoters (all adjusted $p<4.13$E-10) across all other elements
+  \item 3'UTR regions also show a comparative increase in selective pressure for Strong Enhancers ($p = 0.0013$), Weak Enhancers ($p = 0.0014$) and Polycomb Repressed Regions ($p = 2.45$E-03), beyond what could be explained with the baseline terms alone.
+  Evidence for this in Insulators was much weaker with $p = 0.093$.
+  \item No other combinations of elements and regions showed a change in probability beyond what could be explained by the individual region and element terms.
+  \item Intergenic regions were consistently the most receptive to TEs, across all element types.
+\end{itemize}
+
+\FloatBarrier
+\subsection{Alternative to Tables S1 to S6}
+As alternatives to Tables S1 to S6 in the current submission, Figure \ref{fig:plotConfintCond} demonstrates all pairwise comparisons between conditional probabilities, across all elements.
+All Intervals were calculated for an RE using \Sexpr{format(1-0.05/6, digits = 3)}\% Confidence Intervals, which control the RE-wise error rate at $\alpha = 0.05/6$ for each RE.
+With 6 REs being compared, this controls the FWER at the level $\alpha = 0.05$.\\
+\\
+
+<<modMat>>=
+modMat <- lmCond %>%
+  update(.~. -1) %>%
+  model.matrix
+colnames(modMat) <- gsub("(Region|RE)", "", colnames(modMat))
+colnames(modMat) <- gsub(":", ".", colnames(modMat))
+@
+
+
+<<contMat>>=
+contMat <- list(
+  `Active Promoter` = makeContrasts(
+    CDSexon - UTR5, 
+    CDSexon - CDSintron,
+    CDSexon - UTR3,
+    CDSexon - Intergenic,
+    UTR3 - UTR5,
+    UTR3 - Intergenic,
+    UTR3 - CDSintron,
+    Intergenic - UTR5,
+    Intergenic - CDSintron,
+    CDSintron - UTR5,
+    levels = modMat),
+  `Weak Promoter` = makeContrasts(
+    CDSexon + CDSexon.Weak_promoter - UTR5, 
+    CDSexon + CDSexon.Weak_promoter -  CDSintron - CDSintron.Weak_promoter,
+    CDSexon + CDSexon.Weak_promoter - UTR3 - UTR3.Weak_promoter,
+    CDSexon + CDSexon.Weak_promoter - Intergenic - Intergenic.Weak_promoter,
+    UTR3 + UTR3.Weak_promoter - UTR5,
+    UTR3 + UTR3.Weak_promoter - Intergenic - Intergenic.Weak_promoter,
+    UTR3 + UTR3.Weak_promoter -  CDSintron - CDSintron.Weak_promoter,
+    Intergenic + Intergenic.Weak_promoter - UTR5,
+    Intergenic + Intergenic.Weak_promoter - CDSintron - CDSintron.Weak_promoter,
+    CDSintron + CDSintron.Weak_promoter - UTR5,
+    levels = modMat),
+  `Strong Enhancer` = makeContrasts(
+    CDSexon + CDSexon.Strong_enhancer - UTR5, 
+    CDSexon + CDSexon.Strong_enhancer -  CDSintron - CDSintron.Strong_enhancer,
+    CDSexon + CDSexon.Strong_enhancer - UTR3 - UTR3.Strong_enhancer,
+    CDSexon + CDSexon.Strong_enhancer - Intergenic - Intergenic.Strong_enhancer,
+    UTR3 + UTR3.Strong_enhancer - UTR5,
+    UTR3 + UTR3.Strong_enhancer - Intergenic - Intergenic.Strong_enhancer,
+    UTR3 + UTR3.Strong_enhancer -  CDSintron - CDSintron.Strong_enhancer,
+    Intergenic + Intergenic.Strong_enhancer - UTR5,
+    Intergenic + Intergenic.Strong_enhancer - CDSintron - CDSintron.Strong_enhancer,
+    CDSintron + CDSintron.Strong_enhancer - UTR5,
+    levels = modMat),
+  `Weak Enhancer` = makeContrasts(
+    CDSexon + CDSexon.Weak_enhancer - UTR5, 
+    CDSexon + CDSexon.Weak_enhancer -  CDSintron - CDSintron.Weak_enhancer,
+    CDSexon + CDSexon.Weak_enhancer - UTR3 - UTR3.Weak_enhancer,
+    CDSexon + CDSexon.Weak_enhancer - Intergenic - Intergenic.Weak_enhancer,
+    UTR3 + UTR3.Weak_enhancer - UTR5,
+    UTR3 + UTR3.Weak_enhancer - Intergenic - Intergenic.Weak_enhancer,
+    UTR3 + UTR3.Weak_enhancer -  CDSintron - CDSintron.Weak_enhancer,
+    Intergenic + Intergenic.Weak_enhancer - UTR5,
+    Intergenic + Intergenic.Weak_enhancer - CDSintron - CDSintron.Weak_enhancer,
+    CDSintron + CDSintron.Weak_enhancer - UTR5,
+    levels = modMat),
+  `Repressed Region` = makeContrasts(
+    CDSexon + CDSexon.Repressed_region - UTR5, 
+    CDSexon + CDSexon.Repressed_region -  CDSintron - CDSintron.Repressed_region,
+    CDSexon + CDSexon.Repressed_region - UTR3 - UTR3.Repressed_region,
+    CDSexon + CDSexon.Repressed_region - Intergenic - Intergenic.Repressed_region,
+    UTR3 + UTR3.Repressed_region - UTR5,
+    UTR3 + UTR3.Repressed_region - Intergenic - Intergenic.Repressed_region,
+    UTR3 + UTR3.Repressed_region -  CDSintron - CDSintron.Repressed_region,
+    Intergenic + Intergenic.Repressed_region - UTR5,
+    Intergenic + Intergenic.Repressed_region - CDSintron - CDSintron.Repressed_region,
+    CDSintron + CDSintron.Repressed_region - UTR5,
+    levels = modMat),
+  `Insulator` = makeContrasts(
+    CDSexon + CDSexon.Insulator - UTR5, 
+    CDSexon + CDSexon.Insulator -  CDSintron - CDSintron.Insulator,
+    CDSexon + CDSexon.Insulator - UTR3 - UTR3.Insulator,
+    CDSexon + CDSexon.Insulator - Intergenic - Intergenic.Insulator,
+    UTR3 + UTR3.Insulator - UTR5,
+    UTR3 + UTR3.Insulator - Intergenic - Intergenic.Insulator,
+    UTR3 + UTR3.Insulator -  CDSintron - CDSintron.Insulator,
+    Intergenic + Intergenic.Insulator - UTR5,
+    Intergenic + Intergenic.Insulator - CDSintron - CDSintron.Insulator,
+    CDSintron + CDSintron.Insulator - UTR5,
+    levels = modMat)
+  
+)
+for (i in 2:6) colnames(contMat[[i]]) <- colnames(contMat[[1]])
+@
+
+<<confintCond>>=
+confintCond <- names(contMat) %>%
+  lapply(function(x){
+    lmCond %>%
+      update(.~. -1) %>%
+      glht(vcov = sandwich, linfct = t(contMat[[x]])) %>%
+      confint(level = 1 - 0.05/6) %>%
+      extract2("confint") %>%
+      as.data.frame() %>%
+      add_rownames(var = "Comparison") %>%
+      mutate(RE = x)
+  }) %>%
+  bind_rows %>%
+  mutate(Sig = sign(lwr) == sign(upr),
+         RE = factor(RE, levels = unique(RE)),
+         Comparison = factor(Comparison, levels = unique(Comparison)))
+@
+
+It is clear from these comparisons that:
+\begin{itemize}
+  \item CDS-exons are more resistant to TE inclusion in comparison to all other regions, for all types of RE.
+  \item With the exception of Active Promoters, 3'UTRs are more resistant to TE inclusion than elements in 5'UTRs, CDS Introns or Intergenic Regions.
+  \item For Polycomb Repressed Elements, Intergenic Regions are additionally more tolerant to TE inclusion than those in the 5'UTR and CDS-introns.
+  \item Insulators in Intergenic Regions are also more tolerant to TE inclusion than those in CDS introns.
+  \item No differences in TE tolerance were noted between CDS-introns and 5'UTR regions.
+\end{itemize}
+
+\noindent This figure could be presented in combination with Table \ref{tab:condLm} which contains the complete model output.
+
+
+
+<<plotConfintCond, echo=FALSE, fig.height=5, fig.cap="FWER-adjusted 95\\% Confidence Intervals for the difference in probabilities. Intervals which do not contain zero are coloured red, indicating a rejection of the null hypothesis that there is no difference between these two probabilities.">>=
+confintCond %>%
+  mutate(Comparison = gsub("CDS", "CDS ", Comparison),
+         Comparison = gsub("UTR(3|5)", "\\1'UTR", Comparison),
+         Comparison = factor(Comparison, levels = unique(Comparison)),
+         RE = factor(RE, levels = rev(unique(RE)))) %>%
+  ggplot(aes(x = Estimate, y = RE)) +
+  geom_point(aes(colour = Sig)) + 
+  geom_errorbarh(aes(xmin = lwr, xmax = upr, colour = Sig), 
+                 height = 0.5) +
+  geom_vline(xintercept = 0, 
+             linetype = 2,
+             colour = "grey50", size = 0.4) +
+  facet_wrap(~Comparison, ncol = 5) +
+  scale_colour_manual(values = c("black", "red")) +
+  guides(colour = FALSE) +
+  theme_bw() +
+  labs(x = expression(paste("Difference in logit(", pi, ")")),
+       y = "Regulatory Element") +
+  theme(panel.grid = element_blank(),
+        axis.text = element_text(size = fs),
+        axis.title = element_text(size = fs),
+        strip.text = element_text(size = fs -1 ))
+@
+
+
 \end{document}
