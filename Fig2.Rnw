@@ -476,6 +476,7 @@ p1 <- fig2 %>%
          Region = factor(Region, levels = unique(Region)),
          RE = gsub("_", " ", RE),
          RE = capwords(RE),
+         RE = gsub(" ", "\n", RE),
          RE = factor(RE, levels = unique(RE)),
          Class = gsub("mnRE", "p(RE)", Class),
          Class = gsub("mnTEgivRE", "p(TE|RE)", Class),
@@ -501,6 +502,7 @@ p1 <- fig2 %>%
         legend.position = "bottom",
         panel.margin = unit(.004, "npc"),
         panel.grid = element_line(colour = "grey50")) 
+p1
 @
 
 \subsection{Initial Model Checks}
@@ -698,30 +700,32 @@ It is clear from these comparisons that:
 p2 <- confintCond %>%
   mutate(Comparison = gsub("CDS", "CDS ", Comparison),
          Comparison = gsub("UTR(3|5)", "\\1'UTR", Comparison),
-         Comparison = factor(Comparison, levels = unique(Comparison)),
-         RE = factor(RE, levels = rev(unique(RE)))) %>%
-  ggplot(aes(x = Estimate, y = RE)) +
+         Comparison = factor(Comparison, levels = rev(unique(Comparison))),
+         RE = gsub(" ", "\n", RE),
+         RE = factor(RE, levels = unique(RE))) %>%
+  ggplot(aes(x = Estimate, y = Comparison)) +
   geom_point(aes(colour = Sig)) + 
   geom_errorbarh(aes(xmin = lwr, xmax = upr, colour = Sig), 
                  height = 0.5) +
   geom_vline(xintercept = 0, 
              linetype = 2,
              colour = "grey50", size = 0.4) +
-  facet_wrap(~Comparison, ncol = 5) +
+  facet_wrap(~RE, ncol = 6, scales = "free_x") +
   scale_colour_manual(values = c("black", "red")) +
   guides(colour = FALSE) +
   theme_bw() +
   labs(x = expression(paste("Difference in logit(", pi, ")")),
-       y = "Regulatory Element") +
+       y = "Comparison") +
   theme(panel.grid = element_blank(),
         axis.text = element_text(size = fs),
         axis.title = element_text(size = fs),
         strip.text = element_text(size = fs -1 ))
+p2
 @
 
 <<exportPlots>>=
-write_rds(p1, "p1.rds")
-write_rds(p2, "p2.rds")
+ write_rds(p1, "p1.rds")
+ write_rds(p2, "p2.rds")
 @
 
 
