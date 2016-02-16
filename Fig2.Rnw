@@ -444,7 +444,7 @@ fig2 %<>%
 
 <<plotTEgivRE, echo=FALSE, fig.height=4, fig.cap='The estimated probabilities of a base being a Regulatory Element with each genomic region, and the estimated probabilities of a base within each Regulatory Element being a Transposable Element. Error bars indicate one standard error.'>>=
 fs <- 8
-fig2 %>% 
+p1 <- fig2 %>% 
   group_by(Region, RE) %>% 
   summarise(n = n(),
             mnRE = mean(logitRE),
@@ -695,7 +695,7 @@ It is clear from these comparisons that:
 
 
 <<plotConfintCond, echo=FALSE, fig.height=5, fig.cap="FWER-adjusted 95\\% Confidence Intervals for the difference in probabilities. Intervals which do not contain zero are coloured red, indicating a rejection of the null hypothesis that there is no difference between these two probabilities.">>=
-confintCond %>%
+p2 <- confintCond %>%
   mutate(Comparison = gsub("CDS", "CDS ", Comparison),
          Comparison = gsub("UTR(3|5)", "\\1'UTR", Comparison),
          Comparison = factor(Comparison, levels = unique(Comparison)),
@@ -718,6 +718,12 @@ confintCond %>%
         axis.title = element_text(size = fs),
         strip.text = element_text(size = fs -1 ))
 @
+
+<<exportPlots>>=
+write_rds(p1, "p1.rds")
+write_rds(p2, "p2.rds")
+@
+
 
 
 \end{document}
