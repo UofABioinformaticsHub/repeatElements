@@ -1,0 +1,74 @@
+---
+title: "Distribution of REs and RETEs"
+author: "Steve Pederson"
+date: "17 February 2016"
+output: html_document
+---
+
+# Load the packages and the data
+
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(MASS)
+library(matrixStats)
+library(xtable)
+library(multcomp)
+library(sandwich)
+library(car)
+library(dplyr)
+library(reshape2)
+library(readr)
+library(knitr)
+library(magrittr)
+library(limma)
+library(spShortcuts)
+```
+
+NB Proportions were transformed using the logit function
+
+```{r}
+logit <- binomial()$linkfun
+fig2 <- read_csv("Figure2.csv", col_names = FALSE) %>%
+  set_colnames(c("Region", "RE", "Tissue", "bpRETE", "bpRE")) %>%
+  mutate(Region = gsub("([35])'UTR", "UTR\\1", Region),
+         Region = gsub("CDS-", "CDS", Region),
+         Region = factor(Region, levels=c("UTR5", "CDSexon", "CDSintron",  
+                                          "UTR3", "Intergenic")),
+         RE = gsub("Repressor", "Repressed_region", RE),
+         RE = capwords(RE, sep = "_", collapse= "\n"),
+         RE = factor(RE, unique(RE)),
+         Tissue = as.factor(Tissue),
+         bpRETE = bpRETE / 100,
+         bpRE = bpRE/100,
+         logitRETE = logit(bpRETE),
+         logitRE = logit(bpRE)) 
+```
+
+## Inspect the raw data
+
+```{r, fig.width=10}
+fig2 %>% 
+  ggplot(aes(x = Region, y = logitRE, fill = Region)) + 
+  geom_boxplot() + 
+  facet_wrap(~RE, nrow = 1) +
+  theme_bw() +
+  labs(title = "Logit transformed proportions for REs within each region",
+       y = expression(paste("logit(p)"))) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "bottom")
+```
+
+```{r, fig.width=10}
+fig2 %>% 
+  ggplot(aes(x = Region, y = logitRETE, fill = Region)) + 
+  geom_boxplot() + 
+  facet_wrap(~RE, nrow = 1) +
+  theme_bw() +
+  labs(title = "Logit transformed proportions for RETEs within each region",
+       y = expression(paste("logit(p)"))) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "bottom")
+```
+
