@@ -1,0 +1,370 @@
+---
+title: "Final Bootstrap Analysis"
+author: "Steve Pederson"
+date: "18 February 2016"
+output: html_document
+---
+
+# Load packages & Data
+
+## Packages
+If you don't have the packages `funsForLu` or `spShortcuts` installed, these can be installed using `library(devtools)` then `install_github("steveped/funsForLu")` and `install_github("steveped/spShortcuts")`
+
+```{r, loadPackages, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(stringr)
+library(reshape2)
+library(matrixStats)
+library(VennDiagram)
+library(knitr)
+library(xtable)
+library(corrplot)
+library(scales)
+library(pscl)
+library(boot)
+library(lmtest)
+library(dplyr)
+library(parallel)
+library(funsForLu)
+library(spShortcuts)
+library(magrittr)
+```
+
+## Data Setup
+```{r, loadData}
+tpmFile <- file.path("data", "Dec_log2_gene_expression_dataset.txt")
+tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
+  dplyr::select(ID, length, contains("TPM"), contains("IDs")) %>%
+  tbl_df
+```
+
+
+This contains read counts as TPM values for `r nrow(tpmData)` RefSeq IDs.
+These were chosen as the longest canonical transcript for each gene.
+
+```{r, elements}
+elements <- grep("IDs", colnames(tpmData), value = TRUE) %>% 
+  str_split_fixed(pattern="_", 3) %>%
+  as.data.frame(stringsAsFactors = FALSE) %>%
+  dplyr::select(type = V1, region = V2) %>%
+  lapply(unique) %>%
+  lapply(sort)
+```
+
+The list of possible element types and regions was then created, with `r length(elements$type)` element types under consideration across `r length(elements$region)` genomic regions.
+Logical variables for each element type and region were then added to the main `tpmData` object.
+
+```{r, addLogical}
+tpmData %<>%
+  bind_cols(
+    sapply(elements %>% unlist %>% as.vector, 
+           function(x){
+             dplyr::select(tpmData, contains(x)) %>% 
+               rowSums %>% 
+               as.logical
+             },
+           simplify = FALSE) %>%
+  as.data.frame() )
+```
+
+The complete set of tissues was also defined as a character vector.
+```{r, tissues}
+tissues <- gsub("_TPM", "", grep("TPM", colnames(tpmData), value = TRUE))
+```
+
+# Data Inspection
+
+## Inspection By Element Type
+
+Counts of each element type & their co-occurence were then obtained and plotted as a Venn Diagram
+```{r, typeVenn}
+typeVenn <- tpmData %>% 
+  dplyr::select(one_of(elements$type)) %>%
+  getVennCounts
+```
+
+```{r, plotTypeVenn, echo=FALSE, results='hide', fig.height=6, fig.width=7}
+vennCols <- c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3", "orchid3")
+noElCount <- paste("Genes with no TE:", 
+                   nrow(filter(tpmData, !alu, !L1, !L2, !LTR, !mir)))
+
+grid.newpage()
+do.call(draw.quintuple.venn, c(typeVenn, list(fill = vennCols)))
+grid.text(noElCount, 0.03, 0.88, just = "left")
+grid.text(paste0("Total genes: ", nrow(tpmData)), 0.03, 0.84, just="left")
+```
+
+This plot revealed that the majority of TEs occur in genes with other TEs.
+
+```{r, singleElements}
+singleElements <- lapply(seq_along(elements$type),
+                         function(x){
+                           filter_(tpmData, 
+                                   elements$type[x], 
+                                   paste(paste0("!", elements$type[-x]), 
+                                         collapse = " & "))["ID"]
+                           }) %>%
+  set_names(elements$type)
+```
+
+```{r, tabSingleElements, echo=FALSE}
+data_frame(`Element Type` = elements$type,
+           Total = vapply(`Element Type`, 
+                          function(x){filter_(tpmData, x) %>% nrow}, 
+                          integer(1)),
+           `Found In Isolation` = vapply(singleElements, 
+                                         nrow, 
+                                         integer(1)),
+           Proportion = `Found In Isolation`/ Total) %>% 
+  kable
+```
+
+
+## Inspection By Genomic Region
+
+This pattern was less pronounced when looking at TEs by genomic region
+```{r, regionVenn}
+regionVenn <- tpmData %>% 
+  dplyr::select(one_of(elements$region)) %>%
+  getVennCounts
+```
+
+```{r, plotRegionVenn, echo=FALSE, results='hide', fig.height=6, fig.width=7}
+grid.newpage()
+do.call(draw.quad.venn, c(regionVenn, list(fill = vennCols[-5])))
+grid.text(noElCount, 0.05, 0.92, just = "left")
+grid.text(paste0("Total genes: ", nrow(tpmData)), 0.05, 0.88, just="left")
+```
+
+
+```{r, singleRegion}
+singleRegion <- lapply(seq_along(elements$region),
+                       function(x){
+                         filter_(tpmData, 
+                                 elements$region[x], 
+                                 paste(paste0("!", elements$region[-x]), 
+                                       collapse = " & "))["ID"]
+                         }) %>%
+  set_names(elements$region)
+```
+
+
+```{r, tabSingleRegion, echo=FALSE}
+data_frame(Region = elements$region,
+           Total = vapply(Region, 
+                          function(x){filter_(tpmData, x) %>% nrow}, 
+                          integer(1)),
+           `Element In One Region Only` = vapply(singleRegion, 
+                                                 nrow, 
+                                                 integer(1)),
+           Proportion = `Element In One Region Only` / Total) %>%
+  kable
+```
+
+# Analytic Approach
+
+Due to the observation that many TEs co-occur with other TEs, and that most genes with a TE contain a TE in more than one region, a weighted bootstrap approach was taken:
+
+* Gene sets with the presence of a specific TE in a specific regions will be compared to gene sets without the TE.
+Whilst the genes in the first set will be selected using uniform probabilities, genes in the second set will be selected with probabilities such the the structure of the co-occurring elements should match that of the first set.
+* Gene length will be set as an additional binning parameter to ensure that any bias in the TPM values due to gene length is also accounted for. 5 bins were used.
+* Genes with all `r length(elements$type)` elements will be excluded from the analysis
+* `r length(elements$type)` elements will be bootstrapped across `r length(elements$region)` regions and `r length(tissues)`, giving a total of `r length(elements$type)*length(elements$region)*length(tissues)` comparisons.
+All Confidence intervals will be adjusted to control the FWER taking these multiple comparisons into account.
+
+```{r, alpha}
+nComp <- length(elements$type)*length(elements$region)*length(tissues)
+alpha <- 0.05/nComp
+```
+
+```{r, bins}
+nBins <- 5
+nBoot <- 10000L
+tpmData %<>% mutate(lengthBin = findInterval(length, 
+                                             quantile(length, 
+                                                      probs = seq(0, 1, length.out = nBins + 1)), 
+                                             rightmost.closed=TRUE))
+confInt <- list()
+```
+
+# Bootstrap Analysis
+
+## Alu Elements
+
+### 3'UTR
+
+```{r, bootAluUtr3, cache=TRUE}
+aluUtr3Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("alu", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(!grepl("_.+_.+_.+_", elBins),
+         alu_cds_IDs == 0, 
+         alu_prox_IDs == 0, 
+         alu_utr5_IDs == 0)
+bootAluUtr3 <- mclapply(tissues, 
+                        bootMeans, 
+                        data = aluUtr3Data, 
+                        testIds = filter(aluUtr3Data, alu)$ID, 
+                        refIds = filter(aluUtr3Data, !alu)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootAluUtr3) <- tissues
+```
+
+```{r, confintAluUtr3}
+confInt$aluUtr3 <- bootAluUtr3 %>%
+  lapply(extract2, "samples") %>%
+  lapply(quantile, probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
+  lapply(t) %>%
+  lapply(as.data.frame) %>%
+  bind_rows() %>%
+  set_names(c("lower", "median", "upper")) %>%
+  mutate(Element = "Alu",
+         Tissue = capwords(tissues, sep = "_"),
+         Region = "3'UTR")
+```
+
+### 5'UTR
+
+```{r, bootAluUtr5, cache=TRUE}
+aluUtr5Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("alu", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(!grepl("_.+_.+_.+_", elBins),
+         alu_cds_IDs == 0, 
+         alu_utr3_IDs == 0, 
+         alu_prox_IDs == 0)
+bootAluUtr5 <- mclapply(tissues, 
+                        bootMeans, 
+                        data = aluUtr5Data, 
+                        testIds = filter(aluUtr5Data, alu)$ID, 
+                        refIds = filter(aluUtr5Data, !alu)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootAluUtr5) <- tissues
+```
+
+```{r, confIntUtr5}
+confInt$aluUtr5 <- bootAluUtr5 %>%
+  lapply(extract2, "samples") %>%
+  lapply(quantile, probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
+  lapply(t) %>%
+  lapply(as.data.frame) %>%
+  bind_rows() %>%
+  set_names(c("lower", "median", "upper")) %>%
+  mutate(Element = "Alu",
+         Tissue = capwords(tissues, sep = "_"),
+         Region = "5'UTR")
+```
+
+### Proximal Promoters
+
+```{r, bootAluProx, cache=TRUE}
+aluProxData <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("alu", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(!grepl("_.+_.+_.+_", elBins),
+         alu_cds_IDs == 0, 
+         alu_utr3_IDs == 0, 
+         alu_utr5_IDs == 0)
+bootAluProx <- mclapply(tissues, 
+                        bootMeans, 
+                        data = aluProxData, 
+                        testIds = filter(aluProxData, alu)$ID, 
+                        refIds = filter(aluProxData, !alu)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootAluProx) <- tissues
+```
+
+```{r, confIntAluProx}
+confInt$aluProx <- bootAluProx %>%
+  lapply(extract2, "samples") %>%
+  lapply(quantile, probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
+  lapply(t) %>%
+  lapply(as.data.frame) %>%
+  bind_rows() %>%
+  set_names(c("lower", "median", "upper")) %>%
+  mutate(Element = "Alu",
+         Tissue = capwords(tissues, sep = "_"),
+         Region = "Proximal Promoter")
+```
+
+### CDS Regions
+
+```{r, bootAluCds, cache=TRUE}
+aluCdsData <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("alu", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(!grepl("_.+_.+_.+_", elBins),
+         alu_prox_IDs == 0, 
+         alu_utr3_IDs == 0, 
+         alu_utr5_IDs == 0)
+bootAluCds <- mclapply(tissues, 
+                        bootMeans, 
+                        data = aluCdsData, 
+                        testIds = filter(aluCdsData, alu)$ID, 
+                        refIds = filter(aluCdsData, !alu)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 45,
+                        maxP = 0.01)
+names(bootAluCds) <- tissues
+```
+
+```{r}
+confInt$aluCds <- bootAluCds %>%
+  lapply(extract2, "samples") %>%
+  lapply(quantile, probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
+  lapply(t) %>%
+  lapply(as.data.frame) %>%
+  bind_rows() %>%
+  set_names(c("lower", "median", "upper")) %>%
+  mutate(Element = "Alu",
+         Tissue = capwords(tissues, sep = "_"),
+         Region = "CDS Regions")
+```
+
+## Summary for Alu Elements
+```{r, fig.width=8}
+confInt %>% 
+  bind_rows %>% 
+  mutate(Tissue = factor(Tissue, rev(sort(unique(Tissue)))),
+         Sig  = sign(lower) == sign(upper)) %>% 
+  ggplot(aes(x = median, y = Tissue, colour = Sig)) + 
+  geom_point() + 
+  scale_color_manual(values = c("black", "red")) +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.5) + 
+  facet_wrap(~Region, nrow=1, scales = "free_x") + 
+  geom_vline(xintercept = 0) +
+  guides(colour = FALSE) +
+  labs(x = "FWER-adjusted 95% Confidence Intervals For the Mean Difference In Expression") +
+  theme_bw()
+```
+

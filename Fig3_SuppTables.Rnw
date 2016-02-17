@@ -159,7 +159,7 @@ par(mfrow = c(1, 1))
 
 <<fig3, echo=FALSE, fig.height = 3.5, fig.cap = 'Figure 3 as it should currently stand. The legend now has the correct label and the values are on the correct scale.'>>=
 fs <- 9
-fig3 %>%
+p3a <- fig3 %>%
   group_by(RE, TE) %>%
   summarise(mn = mean(logitBP), n = n(), se = sd(logitBP) /sqrt(n)) %>%
   ungroup()%>%
@@ -176,7 +176,7 @@ fig3 %>%
   scale_y_continuous(expand = c(0.01, 0)) +
   labs(x = c(),
        y = "Probability Estimate",
-       fill = "Element Type") +
+       fill = "Element\nType") +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         axis.title.y = element_text(size = fs),
@@ -184,8 +184,12 @@ fig3 %>%
         strip.text = element_text(size = fs-1),
         legend.text = element_text(size = fs),
         legend.title = element_text(size = fs, face = "bold"),
+        legend.title.align = 0.5,
+        legend.position = "top",
         panel.margin = unit(.004, "npc"),
         panel.grid = element_line(colour = "grey50")) 
+p3a
+write_rds(p3a, "p3a.rds")
 @
 
 \FloatBarrier
@@ -211,12 +215,14 @@ confTE <- levels(fig3$RE) %>%
 @
 
 <<plotConfTE, echo=FALSE, fig.height=4.5, fig.cap='Confidence Intervals comparing the probabilities of a base being a specific TE within each Regulatory Element. Intervals which do not contain zero are coloured in red.'>>=
-confTE %>%
+p3b <- confTE %>%
   mutate(RE = gsub(" ", "\n", RE),
          RE = factor(RE, unique(RE)),
          Comparison = factor(Comparison, rev(unique(Comparison)))) %>%
   ggplot(aes(x = Estimate, y = Comparison, colour = Sig)) +
-  geom_errorbarh(aes(xmin = lwr, xmax = upr)) +
+  geom_point(aes(colour = Sig), size = 0.5) +
+  geom_errorbarh(aes(xmin = lwr, xmax = upr),
+                 height = 0.5, size = 0.4) +
   geom_vline(xintercept = 0, 
              linetype = 2, colour = "grey50", size = 0.4) +
   facet_wrap(~RE, nrow = 1) +
@@ -225,11 +231,13 @@ confTE %>%
     guides(colour = FALSE) +
   theme_bw() +
   labs(x = expression(paste("Difference in logit(p)")),
-       y = "Comparison") +
+       y = c()) +
   theme(panel.grid = element_blank(),
         axis.text = element_text(size = fs),
         axis.title = element_text(size = fs),
         strip.text = element_text(size = fs -1 ))
+p3b
+write_rds(p3b, "p3b.rds")
 @
 
 \subsection{Summary of Confidence Intervals}

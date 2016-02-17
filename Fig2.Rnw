@@ -503,6 +503,7 @@ p1 <- fig2 %>%
         panel.margin = unit(.004, "npc"),
         panel.grid = element_line(colour = "grey50")) 
 p1
+write_rds(p1, "p1.rds")
 @
 
 \subsection{Initial Model Checks}
@@ -721,12 +722,9 @@ p2 <- confintCond %>%
         axis.title = element_text(size = fs),
         strip.text = element_text(size = fs -1 ))
 p2
+write_rds(p2, "p2.rds")
 @
 
-<<exportPlots>>=
- write_rds(p1, "p1.rds")
- write_rds(p2, "p2.rds")
-@
 
 
 
