@@ -1,0 +1,684 @@
+---
+title: "Figure 4 (Omitting CDS Regions)"
+author: "Steve Pederson"
+date: "26 February 2016"
+output: html_document
+---
+# Setup
+
+```{r, loadPackages, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(stringr)
+library(reshape2)
+library(matrixStats)
+library(VennDiagram)
+library(knitr)
+library(xtable)
+library(corrplot)
+library(scales)
+library(pscl)
+library(boot)
+library(lmtest)
+library(dplyr)
+library(magrittr)
+library(parallel)
+library(funsForLu)
+library(spShortcuts)
+```
+
+Load the data
+```{r, loadData}
+tpmFile <- file.path("data", "Dec_log2_gene_expression_dataset.txt")
+tpmData <- read.delim(tpmFile, sep="\t", stringsAsFactors = FALSE) %>% 
+  dplyr::select(ID, length, contains("TPM"), contains("IDs")) %>%
+  tbl_df
+```
+
+Collect the elements by type and region
+```{r, elements}
+elements <- grep("IDs", colnames(tpmData), value = TRUE) %>% 
+  str_split_fixed(pattern="_", 3) %>%
+  as.data.frame(stringsAsFactors = FALSE) %>%
+  dplyr::select(type = V1, region = V2) %>%
+  lapply(unique) %>%
+  lapply(sort)
+elements$region <- grep("cds", elements$region, value = TRUE, invert = TRUE)
+nRegions <- length(elements$region)
+nElements <- length(elements$type)
+```
+
+Collect the tissues
+```{r, tissues}
+tissues <- colnames(tpmData) %>%
+  str_subset("TPM") %>%
+  str_replace("_TPM", "")
+nTissues <- length(tissues)
+```
+
+Add columns of logical values to the main data object which denote the element type and region
+```{r, addElements}
+tpmData %<>%
+  bind_cols(sapply(unlist(elements) %>% 
+                     as.vector, 
+                   function(x){dplyr::select(tpmData, contains(x)) %>% 
+                                 rowSums %>% 
+                                 as.logical},
+                   simplify = FALSE)) %>%
+  mutate(nElTypes = alu + L1 + L2 + LTR + mir)
+```
+
+# Setup For The Bootstrap Procedure
+
+During the weighted bootstrap procedure, genes will be assigned to groups based on their TE structure.
+In order to address any effects on TPM counts due to gene length, the TE groups will be further divided based on length quartiles.
+The mean difference in length will also be recorded to ensure that the length distributions are matched.
+
+Additionally, a number of genes contained all five elements, and as this set of `r tpmData %>% filter(alu, L1, L2, LTR, mir) %>% nrow()` genes was clearly higher than would be expected by random, this set with all 5 elements were omitted from the analysis.
+
+```{r, makeBins}
+nBins <- 10
+tpmData %<>% 
+  filter(nElTypes != nElements) %>%
+  mutate(lengthBin = findInterval(length, 
+                                  quantile(length, 
+                                           probs = seq(0, 1, length.out = nBins + 1)), 
+                                  rightmost.closed=TRUE),
+         logLength = log(length))
+```
+
+Confidence intervals will be formed for the presence of each TE within each Genomic Region.
+However, in order to control the Type 1 Error at the level $\alpha = 0.05$, the entire set of $m$ intervals needs to be adjusted, with the Boferroni's method being the simplest approach.
+Thus a set of $1-\alpha / m$ Confidence intervals will be formed for each genomic region.
+
+```{r}
+m <- nTissues*nElements*nRegions
+alpha <- 0.05/m
+nBoot <- 10000L
+testVals <- c("logLength", tissues)
+```
+
+
+An additional function was written to extract the CI from each set of bootstrap samples
+```{r}
+getCI <- function(x, alpha, combined = FALSE){
+  if (!combined) {
+    out <- x %>%
+      lapply(extract2, "samples") %>%
+      lapply(quantile, probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
+      lapply(t) %>%
+      lapply(as.data.frame) %>%
+      bind_rows() %>%
+      set_names(c("lower", "median", "upper")) %>%
+      mutate(Tissue = names(x))
+  } 
+  else {
+    out <- x %>%
+      lapply(extract2, "samples") %>%
+      unlist %>%
+      quantile(probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
+      as.list %>%
+      as.data.frame %>%
+      set_names(c("lower", "median", "upper"))
+  }
+  out
+}
+```
+
+
+In order to provide the number of samples to accurately construct these confidence intervals, the analysis was performed using `r nBoot` bootstrap iterations.
+
+## 3' UTR
+
+### Alu Elements
+
+```{r, aluUtr3Data}
+aluUtr3Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("alu", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(alu_cds_IDs == 0, 
+         alu_prox_IDs == 0, 
+         alu_utr5_IDs == 0)
+```
+
+```{r, bootAluUtr3, cache = TRUE}
+bootAluUtr3 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = aluUtr3Data, 
+                        testIds = filter(aluUtr3Data, alu)$ID, 
+                        refIds = filter(aluUtr3Data, !alu)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootAluUtr3) <- testVals
+```
+
+### L1 Elements
+
+```{r, L1Utr3Data}
+L1Utr3Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("L1", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(L1_cds_IDs == 0, 
+         L1_prox_IDs == 0, 
+         L1_utr5_IDs == 0)
+```
+
+```{r, bootL1Utr3, cache = TRUE}
+bootL1Utr3 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = L1Utr3Data, 
+                        testIds = filter(L1Utr3Data, L1)$ID, 
+                        refIds = filter(L1Utr3Data, !L1)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootL1Utr3) <- testVals
+```
+
+### L2 Elements
+
+```{r, L2Utr3Data}
+L2Utr3Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("L2", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(L2_cds_IDs == 0, 
+         L2_prox_IDs == 0, 
+         L2_utr5_IDs == 0)
+```
+
+```{r, bootL2Utr3, cache = TRUE}
+bootL2Utr3 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = L2Utr3Data, 
+                        testIds = filter(L2Utr3Data, L2)$ID, 
+                        refIds = filter(L2Utr3Data, !L2)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootL2Utr3) <- testVals
+```
+
+### LTR Elements
+
+```{r, LTRUtr3Data}
+LTRUtr3Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("LTR", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(LTR_cds_IDs == 0, 
+         LTR_prox_IDs == 0, 
+         LTR_utr5_IDs == 0)
+```
+
+```{r, bootLTRUtr3, cache = TRUE}
+bootLTRUtr3 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = LTRUtr3Data, 
+                        testIds = filter(LTRUtr3Data, LTR)$ID, 
+                        refIds = filter(LTRUtr3Data, !LTR)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootLTRUtr3) <- testVals
+```
+
+### mir Elements
+
+```{r, mirUtr3Data}
+mirUtr3Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("mir", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(mir_cds_IDs == 0, 
+         mir_prox_IDs == 0, 
+         mir_utr5_IDs == 0)
+```
+
+```{r, bootMirUtr3, cache = TRUE}
+bootMirUtr3 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = mirUtr3Data, 
+                        testIds = filter(mirUtr3Data, mir)$ID, 
+                        refIds = filter(mirUtr3Data, !mir)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootMirUtr3) <- testVals
+```
+
+## 5' UTR
+
+### Alu Elements
+
+```{r, aluUtr5Data}
+aluUtr5Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("alu", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(alu_cds_IDs == 0, 
+         alu_prox_IDs == 0, 
+         alu_utr3_IDs == 0)
+```
+
+```{r, bootAluUtr5, cache = TRUE}
+bootAluUtr5 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = aluUtr5Data, 
+                        testIds = filter(aluUtr5Data, alu)$ID, 
+                        refIds = filter(aluUtr5Data, !alu)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootAluUtr5) <- testVals
+```
+
+### L1 Elements
+
+```{r, L1Utr5Data}
+L1Utr5Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("L1", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(L1_cds_IDs == 0, 
+         L1_prox_IDs == 0, 
+         L1_utr3_IDs == 0)
+```
+
+```{r, bootL1Utr5, cache = TRUE}
+bootL1Utr5 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = L1Utr5Data, 
+                        testIds = filter(L1Utr5Data, L1)$ID, 
+                        refIds = filter(L1Utr5Data, !L1)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootL1Utr5) <- testVals
+```
+
+### L2 Elements
+
+```{r, L2Utr5Data}
+L2Utr5Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("L2", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(L2_cds_IDs == 0, 
+         L2_prox_IDs == 0, 
+         L2_utr3_IDs == 0)
+```
+
+```{r, bootL2Utr5, cache = TRUE}
+bootL2Utr5 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = L2Utr5Data, 
+                        testIds = filter(L2Utr5Data, L2)$ID, 
+                        refIds = filter(L2Utr5Data, !L2)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootL2Utr5) <- testVals
+```
+
+### LTR Elements
+
+```{r, LTRUtr5Data}
+LTRUtr5Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("LTR", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(LTR_cds_IDs == 0, 
+         LTR_prox_IDs == 0, 
+         LTR_utr3_IDs == 0)
+```
+
+```{r, bootLTRUtr5, cache = TRUE}
+bootLTRUtr5 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = LTRUtr5Data, 
+                        testIds = filter(LTRUtr5Data, LTR)$ID, 
+                        refIds = filter(LTRUtr5Data, !LTR)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootLTRUtr5) <- testVals
+```
+
+### mir Elements
+
+```{r, mirUtr5Data}
+mirUtr5Data <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("mir", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(mir_cds_IDs == 0, 
+         mir_prox_IDs == 0, 
+         mir_utr3_IDs == 0)
+```
+
+```{r, bootMirUtr5, cache = TRUE}
+bootMirUtr5 <- mclapply(testVals, 
+                        bootMeans, 
+                        data = mirUtr5Data, 
+                        testIds = filter(mirUtr5Data, mir)$ID, 
+                        refIds = filter(mirUtr5Data, !mir)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootMirUtr5) <- testVals
+```
+
+## Proximal Promoter
+
+### Alu Elements
+
+```{r, aluProxData}
+aluProxData <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("alu", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(alu_cds_IDs == 0, 
+         alu_utr3_IDs == 0, 
+         alu_utr5_IDs == 0)
+```
+
+```{r, bootAluProx, cache = TRUE}
+bootAluProx <- mclapply(testVals, 
+                        bootMeans, 
+                        data = aluProxData, 
+                        testIds = filter(aluProxData, alu)$ID, 
+                        refIds = filter(aluProxData, !alu)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootAluProx) <- testVals
+```
+
+### L1 Elements
+
+```{r, L1ProxData}
+L1ProxData <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("L1", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(L1_cds_IDs == 0, 
+         L1_utr3_IDs == 0, 
+         L1_utr5_IDs == 0)
+```
+
+```{r, bootL1Prox, cache = TRUE}
+bootL1Prox <- mclapply(testVals, 
+                        bootMeans, 
+                        data = L1ProxData, 
+                        testIds = filter(L1ProxData, L1)$ID, 
+                        refIds = filter(L1ProxData, !L1)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootL1Prox) <- testVals
+```
+
+### L2 Elements
+
+```{r, L2ProxData}
+L2ProxData <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("L2", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(L2_cds_IDs == 0, 
+         L2_utr3_IDs == 0, 
+         L2_utr5_IDs == 0)
+```
+
+```{r, bootL2Prox, cache = TRUE}
+bootL2Prox <- mclapply(testVals, 
+                        bootMeans, 
+                        data = L2ProxData, 
+                        testIds = filter(L2ProxData, L2)$ID, 
+                        refIds = filter(L2ProxData, !L2)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootL2Prox) <- testVals
+```
+
+### LTR Elements
+
+```{r, LTRProxData}
+LTRProxData <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("LTR", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(LTR_cds_IDs == 0, 
+         LTR_utr3_IDs == 0, 
+         LTR_utr5_IDs == 0)
+```
+
+```{r, bootLTRProx, cache = TRUE}
+bootLTRProx <- mclapply(testVals, 
+                        bootMeans, 
+                        data = LTRProxData, 
+                        testIds = filter(LTRProxData, LTR)$ID, 
+                        refIds = filter(LTRProxData, !LTR)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootLTRProx) <- testVals
+```
+
+### mir Elements
+
+```{r, mirProxData}
+mirProxData <- tpmData %>%
+  mutate(
+    elBins = dplyr::select(
+      tpmData, 
+      one_of(grep("mir", elements$type, invert = TRUE, value = TRUE))
+    ) %>%
+    binsFromCols, 
+    elBins = paste(elBins, lengthBin, sep = "_")) %>%
+  filter(mir_cds_IDs == 0, 
+         mir_utr3_IDs == 0, 
+         mir_utr5_IDs == 0)
+```
+
+```{r, bootMirProx, cache = TRUE}
+bootMirProx <- mclapply(testVals, 
+                        bootMeans, 
+                        data = mirProxData, 
+                        testIds = filter(mirProxData, mir)$ID, 
+                        refIds = filter(mirProxData, !mir)$ID,
+                        binCol = "elBins",
+                        nBoot = nBoot, 
+                        nGenes = 1000L,
+                        maxP = 0.01)
+names(bootMirProx) <- testVals
+```
+
+
+# Confidence Intervals for Length Differences
+
+This step is a control to check that the length distributions were suitably paired.
+Any intervals that don't contain zero will indicate that the two sets of genes will have different length distributions and the comparison will need to be reanalysed
+
+```{r}
+confIntLen <- list(bootAluUtr3, bootAluUtr5, bootAluProx, 
+                   bootL1Utr3, bootL1Utr5, bootL1Prox,
+                   bootL2Utr3, bootL2Utr5, bootL2Prox, 
+                   bootLTRUtr3, bootLTRUtr5, bootLTRProx,
+                   bootMirUtr3, bootMirUtr5, bootMirProx) %>%
+  lapply(extract, "logLength") %>%
+  lapply(getCI, alpha = 0.05, combined = TRUE) %>%
+  bind_rows %>%
+  mutate(Region = rep(c("3'UTR", "5'UTR","Proximal Promoter"), 
+                      times = nElements),
+         TE = rep(elements$type, each = nRegions))
+```
+
+```{r}
+confIntLen %>%
+  mutate(TE = factor(TE, rev(unique(TE)))) %>%
+  ggplot(aes(x = median, y = TE)) +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.5) +
+  facet_wrap(~Region, nrow=1, scales = "free_x") +
+  geom_vline(xintercept = 0, colour = "grey50", linetype = 2) +
+  theme_bw() +
+  labs(x = "95% CI",
+       y = c(),
+       title = "Difference in log(Length) between samples")
+```
+
+As zero didn't lie outside of any of these intervals, the subsequent results can be deemed to be valid.
+
+# Confidence Intervals for Elements & Regions
+
+## Combined Across Tissues
+
+```{r}
+m <- nRegions*nElements
+confIntCombined <- list(bootAluUtr3, bootAluUtr5, bootAluProx, 
+                        bootL1Utr3, bootL1Utr5, bootL1Prox,
+                        bootL2Utr3, bootL2Utr5, bootL2Prox, 
+                        bootLTRUtr3, bootLTRUtr5, bootLTRProx, 
+                        bootMirUtr3, bootMirUtr5, bootMirProx) %>%
+  lapply(extract, tissues) %>%
+  lapply(getCI, 
+         alpha = 0.05/m, 
+         combined = TRUE) %>%
+  bind_rows() %>%
+  mutate(TE = rep(elements$type, each = nRegions),
+         Region = rep(c("3'UTR", "5'UTR", "Proximal Promoter"),
+                      times = nElements),
+         Sig = sign(lower) == sign(upper))
+```
+
+```{r}
+confIntCombined %>%
+  mutate(TE = factor(TE, rev(unique(TE)))) %>%
+  ggplot(aes(x = median, y = TE, colour = Sig)) +
+  geom_errorbarh(aes(xmin = lower, xmax =upper)) +
+  geom_vline(xintercept = 0) +
+  theme_bw() + 
+  scale_color_manual(values = c("black", "red")) +
+  facet_wrap(~Region, nrow = 1) +
+  guides(colour = FALSE) +
+  labs(x = "FWER-adjusted 95% Confidence Intervals",
+       y = c(),
+       title = "Bootstrap Confidence Intervals for log(TPM)")
+```
+
+No sigificant effects were detected across all tissues, although the restrictive power of a Bonferroni correction may be responsible for this, especially with Alu elements.
+
+## Tissue Specific Effects
+
+As there appeared to be a bias towards upregulatory effects due to the presence of an Alu element, tissue-specific effects were investigated for all elements
+
+```{r}
+m <- nRegions*nElements*nTissues
+confIntTissues <- list(bootAluUtr3, bootAluUtr5, bootAluProx, 
+                        bootL1Utr3, bootL1Utr5, bootL1Prox, 
+                        bootL2Utr3, bootL2Utr5, bootL2Prox, 
+                        bootLTRUtr3, bootLTRUtr5, bootLTRProx, 
+                        bootMirUtr3, bootMirUtr5, bootMirProx) %>%
+  lapply(extract, tissues) %>%
+  lapply(getCI, 
+         alpha = 0.05/m) %>%
+  bind_rows() %>%
+  mutate(TE = rep(elements$type, 
+                  each = nRegions*nTissues),
+         Region = c("3'UTR", "5'UTR", "Proximal Promoter") %>%
+           rep(times =nElements) %>%
+           rep(each = nTissues),
+         Sig = sign(lower) == sign(upper))
+```
+
+```{r, plotConfIntTissues, fig.height=8, fig.width=10}
+confIntTissues %>%
+  mutate(Tissue = capwords(Tissue, sep = "_"),
+         Tissue = factor(Tissue, rev(unique(Tissue))),
+         TE = capwords(TE)) %>%
+  ggplot(aes(x = median, y = Tissue, colour = Sig)) +
+  geom_errorbarh(aes(xmin = lower,xmax =upper)) +
+  scale_color_manual(values = c("black", "red")) +
+  geom_vline(xintercept = 0) +
+  theme_bw() + 
+  facet_grid(TE~Region, scales = "free_x") +
+  guides(colour = FALSE) +
+  labs(x = "FWER-adjusted 95% Confidence Intervals",
+       y = c(),
+       title = "Tissue-Specific Bootstrap Confidence Intervals For log(TPM)")
+```
+
