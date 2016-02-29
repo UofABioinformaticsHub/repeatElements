@@ -778,7 +778,7 @@ confIntCombined %>%
   geom_vline(xintercept = 0) +
   theme_bw() + 
   scale_color_manual(values = c("black", "red")) +
-  facet_wrap(~Region, nrow = 1) +
+  facet_wrap(~Region, nrow = 1, scales = "free_x") +
   guides(colour = FALSE) +
   labs(x = "FWER-adjusted 95% Confidence Intervals",
        y = c(),
@@ -827,5 +827,14 @@ confIntTissues %>%
   labs(x = "FWER-adjusted 95% Confidence Intervals",
        y = c(),
        title = "Tissue-Specific Bootstrap Confidence Intervals For log(TPM)")
+```
+
+
+```{r}
+save.image("Figure4.RData")
+```
+
+```{r}
+sessionInfo()
 ```
 

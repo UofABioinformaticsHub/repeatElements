@@ -1,0 +1,83 @@
+---
+title: "Non-Expressed Genes"
+author: "Steve Pederson"
+date: "29 February 2016"
+output: html_document
+---
+
+# Explorations of non-expressed genes
+
+```{r, loadData}
+load("~/Documents/Adelson Group/Zeng/Figure4.RData")
+```
+
+```{r, loadPackages, message = FALSE, warning=FALSE}
+library(dplyr)
+library(reshape2)
+library(stringr)
+library(magrittr)
+library(multcomp)
+library(spShortcuts)
+library(knitr)
+```
+
+Data was loaded from the generatino of Figure 4, and expression values were converted to logical variables using the `R` command `is.finite()`.
+Thus non-expressed genes in any tissue will be given the value `FALSE` whilst expressed genes will be given the value `TRUE`.
+```{r, binaryData}
+binaryData <- tpmData %>%
+  melt(id.vars = c("ID", str_subset(colnames(tpmData), "IDs"), "logLength"),
+       measure.vars = str_subset(colnames(tpmData), "TPM"),
+       variable.name = "Tissue",
+       value.name = "TPM") %>% 
+  mutate(Tissue = str_replace(Tissue, "_TPM", ""),
+         Tissue = str_replace(Tissue, "_", " "),
+         Tissue = str_to_title(Tissue),
+         Tissue = as.factor(Tissue),
+         TPM = is.finite(TPM)) %>%
+  as_data_frame()
+```
+
+
+A logistic regression model was fitted for:
+
+$y_{ij} = \alpha_{i} + \beta + \gamma_{j}$
+where 
+
+- $\alpha_i$ for $i$={1, 2, ..., 6} is the Tissue specific intercept term
+- $\beta$ is the effect on the probability of expression due to gene length
+- $\gamma_j$ for $j$ = {1, 2, ..., 20} represents any effects on the probability of expression due each of the 20 combinations of TE and genmoic region
+- $y_{ij}$ = logit($\pi_{ij}$), where $\pi_{ij}$ is the probablity of expression for a gene within Tissue $i$ with TEs defined by $j$
+
+No interaction terms were included in the final model.
+```{r, fm}
+fm <- paste("TPM ~ 0 + Tissue + logLength + ",
+            str_subset(colnames(binaryData), "IDs") %>%
+              sort %>%
+              paste(collapse = " + ")) %>%
+  as.formula()
+```
+
+```{r, expGlm}
+expGlm <- glm(fm, "binomial", binaryData) 
+```
+
+The results from the `glm` are summarised below, with all stated $p$-values being adjusted using Bonferroni's method.
+
+```{r, glmRes, echo=FALSE, include=TRUE}
+glht(expGlm) %>% 
+  summary(test = adjusted("bonferroni")) %>% 
+  extract2("test") %>%
+  extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+  set_names(c("Estimate", "Std.Error", "T", "P")) %>%
+  as.data.frame() %>%
+  add_rownames("Coefficient") %>%
+  mutate(Sig = aster(P),
+         Symbol = c(paste0("$\\alpha_", 1:6, "$"),
+                    "$\\beta$",
+                    paste0("$\\gamma_{", 1:20, "}$")),
+         Coefficient = gsub("Tissue(.+)", "\\1 Tissue", Coefficient)) %>% 
+  dplyr::select(Symbol, Coefficient, Estimate, Std.Error, T, P, Sig) %>%
+  kable(digits = 4,
+        col.names = c("Model Coefficient", "Term", "Estimate", "SE", "T", "P", " "))
+```
+
