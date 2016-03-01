@@ -1,0 +1,319 @@
+---
+title: "Figure 5"
+author: "Steve Pederson & Lu Zeng"
+date: "1 March 2016"
+output: html_document
+---
+
+# Non-coding regions
+
+This section analyses the TE distributions within REs located in non-coding regions.
+
+```{r, loadPackages, message=FALSE, warning=FALSE}
+library(dplyr)
+library(readr)
+library(magrittr)
+library(ggplot2)
+library(spShortcuts)
+library(reshape2)
+library(car)
+library(multcomp)
+library(knitr)
+library(limma)
+library(grid)
+```
+
+## Data Import
+
+Data was loaded, with:
+
+- Percent values being converted back to proportions
+- The conditional probability for $p(TE \mid RE)$ being calculated
+- All probabilities were logit transformed
+```{r, loadData}
+fig5 <- file.path("data", "Figure5.csv") %>%
+  read_csv(col_names = FALSE) %>%
+  set_colnames(c("Region", "RE", "Tissue", "bpRETE", "bpRE")) %>%
+  mutate(Region = as.factor(Region),
+         RE = gsub("Repressor", "Repressed Region", RE),
+         RE = capwords(RE, sep = "_"),
+         RE = factor(RE, levels= c("Active Promoter","Weak Promoter", "Strong Enhancer", 
+                                   "Weak Enhancer", "Repressed Region", "Insulator")),
+         Tissue = as.factor(Tissue),
+         bpRETE = bpRETE / 100,
+         bpRE = bpRE/100,
+         `bpTE|RE` = bpRETE / bpRE,
+         `logit RETE` = logit(bpRETE),
+         `logit RE` = logit(bpRE),
+         `logit TE|RE` = logit(`bpTE|RE`)) 
+```
+
+```{r, echo=FALSE, fig.cap="Raw data across all 6 tissues", fig.width=10}
+fig5 %>%
+  dplyr::select(-starts_with("bp")) %>%
+  melt(id.vars = c("Region", "RE", "Tissue"),
+       measure.vars = c("logit RE", "logit RETE", "logit TE|RE"),
+       variable.name = "type",
+       value.name = "pi") %>%
+  ggplot(aes(x = Region, y = pi, fill = Region)) +
+  geom_boxplot() +
+  facet_grid(type~RE, scales = "free_y") +
+  theme_bw() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  labs(x = c(),
+       y = expression(logit~~pi))
+```
+
+```{r, echo=FALSE, fig.width=8, fig.cap = '*Figure 5A - Probability of a given nucleotide being part of a specific RE within each genomic region, i.e.* $p(RE)$*, and the probability of a nucleotide being a TE given it is within an RE, i.e* $p(TE \\mid RE)$'}
+fs <- 8
+fig5A <- fig5 %>% 
+  group_by(Region, RE) %>% 
+  summarise(n = n(),
+            mnRE = mean(`logit RE`),
+            seRE = sd(`logit RE`) / sqrt(n),
+            mnTERE = mean(`logit TE|RE`), 
+            seTERE = sd(`logit TE|RE`) / sqrt(n)) %>% 
+  ungroup %>%
+  mutate(lowerRE = mnRE - seRE,
+         lowerTERE = mnTERE - seTERE,
+         upperRE = mnRE + seRE,
+         upperTERE = mnTERE + seTERE) %>%
+  (function(x){
+    d1 = melt(x, id.vars = c("Region", "RE"),
+              measure.vars = c("mnRE", "mnTERE"),
+              variable.name = "Class", 
+              value.name = "logitPi")
+    d2 = melt(x, id.vars = c("Region", "RE"),
+              measure.vars = c("lowerRE", "lowerTERE"),
+              variable.name = "Class", 
+              value.name = "logitLower")
+    d3 = melt(x, id.vars = c("Region", "RE"),
+              measure.vars = c("upperRE", "upperTERE"),
+              variable.name = "Class", 
+              value.name = "logitUpper")
+    cbind(d1, logitLower = d2$logitLower, logitUpper = d3$logitUpper)
+  }) %>% 
+  mutate(Region = factor(Region, levels = unique(Region)),
+         RE = gsub(" ", "\n", RE),
+         RE = factor(RE, levels = unique(RE)),
+         Class = gsub("mnRE", "p(RE)", Class),
+         Class = gsub("mnTERE", "p(TE|RE)", Class),
+         pi = binomial()$linkinv(logitPi),
+         lower = binomial()$linkinv(logitLower),
+         upper = binomial()$linkinv(logitUpper)) %>% 
+  ggplot(aes(x = Region, y = pi, fill = Region)) + 
+  geom_bar(stat = "identity") + 
+  geom_errorbar(aes(ymin = lower, ymax = upper),
+                width = 0.4) +
+  facet_grid(Class~RE, scale = "free_y") +
+  scale_y_continuous(expand = c(0.02,0)) +
+  theme_bw() +
+  labs(x = c(), 
+       y = "Probability Estimate") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(angle = 90, 
+                                    size = fs),
+        axis.text.y = element_text(size = fs-1),
+        strip.text = element_text(size = fs-1),
+        legend.text = element_text(size = fs),
+        legend.title = element_text(size = fs, 
+                                    face = "bold"),
+        legend.key.size = unit(4, "mm"),
+        legend.position = "top",
+        panel.margin = unit(.004, "npc"),
+        panel.grid = element_line(colour = "grey50")) 
+fig5A
+```
+
+
+
+
+## Model checks
+
+Conditional probabilities will be fitted across all REs and regions in a single model, and as such the data needs to be checked for normality & homoscedasticity, using the Shapiro-Wilk Test and Levene's Test respectively.
+
+```{r}
+`lmTE|RE` <- lm(`logit TE|RE` ~ Region*RE, data = fig5)
+```
+
+```{r}
+`lmTE|RE` %>%
+  residuals() %>%
+  shapiro.test() 
+```
+
+```{r}
+`lmTE|RE` %>%
+  leveneTest(center = "mean")
+```
+
+The model assumptions are thus not violated for linear regression, and analysis can proceed
+
+## Model Results
+```{r, echo=FALSE, include=TRUE}
+`lmTE|RE` %>%
+  glht %>%
+  summary(test = adjusted("bonferroni")) %>%
+  extract2("test") %>%
+  extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+  as.data.frame() %>%
+  add_rownames("Coefficient") %>%
+  rename(Estimate = coefficients,
+         `Std. Error` = sigma,
+         T = tstat,
+         P = pvalues) %>%
+  mutate(Coefficient = gsub("Region", "", Coefficient),
+         Coefficient = gsub("RE", "", Coefficient),
+         ` ` = aster(P),
+         P = format(P, scientific = TRUE, digits = 3)) %>%
+  kable(caption = paste("Results from analysis of conditional probabilities across all regulatory elements and genomic regions using a linear regression model.",
+                        "The values being analysed are the logit transformed proportions of bases, such that a positive value corresponds to an increase in probability.",
+                        "The baseline region is defined as CDS-exons, with the baseline RE defined as Active Promoters.",
+                        "Bonferroni's adjustment has been applied to all $p$-values."),
+        digits = c(0, 3, 3, 2, 0, 0),
+        align = c("l", "r")[c(1, 2, 2, 2, 2, 1)]) 
+```
+
+## Confidence Intervals
+```{r, modMat}
+modMat <- `lmTE|RE` %>%
+  update(.~. -1) %>%
+  model.matrix
+colnames(modMat) <- gsub("(Region|RE|-| )", "", colnames(modMat))
+colnames(modMat) <- gsub(":", ".", colnames(modMat))
+```
+
+```{r}
+m <- fig5 %>%
+  extract2("RE") %>%
+  levels %>%
+  length
+```
+
+
+```{r, contMat}
+contMat <- list(
+  `Active Promoter` = makeContrasts(
+    CDSexon - CDSintron,
+    CDSexon - LincRNAexon,
+    CDSexon - LincRNAintron,
+    CDSintron - LincRNAexon,
+    CDSintron - LincRNAintron,
+    LincRNAexon - LincRNAintron,
+    levels = modMat),
+  `Weak Promoter` = makeContrasts(
+    CDSexon - CDSintron - CDSintron.WeakPromoter,
+    CDSexon - LincRNAexon - LincRNAexon.WeakPromoter,
+    CDSexon - LincRNAintron - LincRNAintron.WeakPromoter,
+    CDSintron + CDSintron.WeakPromoter - LincRNAexon - LincRNAexon.WeakPromoter,
+    CDSintron + CDSintron.WeakPromoter - LincRNAintron - LincRNAintron.WeakPromoter,
+    LincRNAexon + LincRNAexon.WeakPromoter - LincRNAintron - LincRNAintron.WeakPromoter,
+    levels = modMat),
+  `Strong Enhancer` = makeContrasts(
+    CDSexon - CDSintron - CDSintron.StrongEnhancer,
+    CDSexon - LincRNAexon - LincRNAexon.StrongEnhancer,
+    CDSexon - LincRNAintron - LincRNAintron.StrongEnhancer,
+    CDSintron + CDSintron.StrongEnhancer - LincRNAexon - LincRNAexon.StrongEnhancer,
+    CDSintron + CDSintron.StrongEnhancer - LincRNAintron - LincRNAintron.StrongEnhancer,
+    LincRNAexon + LincRNAexon.StrongEnhancer - LincRNAintron - LincRNAintron.StrongEnhancer,
+    levels = modMat),
+  `Weak Enhancer` = makeContrasts(
+    CDSexon - CDSintron - CDSintron.WeakEnhancer,
+    CDSexon - LincRNAexon - LincRNAexon.WeakEnhancer,
+    CDSexon - LincRNAintron - LincRNAintron.WeakEnhancer,
+    CDSintron + CDSintron.WeakEnhancer - LincRNAexon - LincRNAexon.WeakEnhancer,
+    CDSintron + CDSintron.WeakEnhancer - LincRNAintron - LincRNAintron.WeakEnhancer,
+    LincRNAexon + LincRNAexon.WeakEnhancer - LincRNAintron - LincRNAintron.WeakEnhancer,
+    levels = modMat),
+  `Repressed Region` = makeContrasts(
+    CDSexon - CDSintron - CDSintron.Repressed,
+    CDSexon - LincRNAexon - LincRNAexon.Repressed,
+    CDSexon - LincRNAintron - LincRNAintron.Repressed,
+    CDSintron + CDSintron.Repressed - LincRNAexon - LincRNAexon.Repressed,
+    CDSintron + CDSintron.Repressed - LincRNAintron - LincRNAintron.Repressed,
+    LincRNAexon + LincRNAexon.Repressed - LincRNAintron - LincRNAintron.Repressed,
+    levels = modMat),
+  `Insulator` = makeContrasts(
+    CDSexon - CDSintron - CDSintron.Insulator,
+    CDSexon - LincRNAexon - LincRNAexon.Insulator,
+    CDSexon - LincRNAintron - LincRNAintron.Insulator,
+    CDSintron + CDSintron.Insulator - LincRNAexon - LincRNAexon.Insulator,
+    CDSintron + CDSintron.Insulator - LincRNAintron - LincRNAintron.Insulator,
+    LincRNAexon + LincRNAexon.Insulator - LincRNAintron - LincRNAintron.Insulator,
+    levels = modMat)
+)
+for (i in 2:m) colnames(contMat[[i]]) <- colnames(contMat[[1]])
+```
+
+```{r}
+confInt <- names(contMat) %>%
+  lapply(function(x){
+    `lmTE|RE` %>%
+      update(.~. -1) %>%
+      glht(linfct = t(contMat[[x]])) %>%
+      confint(level = 1 - 0.05/m) %>%
+      extract2("confint") %>%
+      as.data.frame() %>%
+      add_rownames(var = "Comparison") %>%
+      mutate(RE = x)
+  }) %>%
+  bind_rows %>%
+  mutate(Sig = sign(lwr) == sign(upr))
+```
+
+```{r, echo=FALSE}
+fig5B <- confInt %>%
+  mutate(Comparison = gsub("(ex|intr)", " \\1", Comparison),
+         Comparison = factor(Comparison, levels = rev(unique(Comparison))),
+         RE = gsub(" ", "\n", RE),
+         RE = factor(RE, levels = unique(RE))) %>%
+  ggplot(aes(x = Estimate, y = Comparison)) +
+  geom_point(aes(colour = Sig), size = 0.5) + 
+  geom_errorbarh(aes(xmin = lwr, xmax = upr, colour = Sig), 
+                 height = 0.5, size = 0.4) +
+  geom_vline(xintercept = 0, 
+             linetype = 2,
+             colour = "grey50", size = 0.2) +
+  facet_wrap(~RE, ncol = 6) +
+  scale_colour_manual(values = c("black", "red")) +
+  guides(colour = FALSE) +
+  theme_bw() +
+  labs(x = expression(paste("Difference in logit(", pi, ")")),
+       y = "Comparison") +
+  theme(panel.grid = element_blank(),
+        axis.text = element_text(size = fs),
+        axis.title = element_text(size = fs),
+        strip.text = element_text(size = fs -1 ))
+```
+
+## Final Figure For Publication
+
+```{r, Figure5, eval=FALSE}
+fig5A$theme$strip.text$size <- fs - 1 
+fig5A$theme$axis.text.y$size <- fs - 1 
+fig5A$theme$axis.title.y$size <- fs - 1
+fig5A$theme$legend.text$size <- fs - 2
+fig5A$theme$legend.title$size <- fs - 1
+
+fig5B$theme$strip.text$size <- fs - 1
+fig5B$theme$axis.text.y$size <- fs - 2
+fig5B$theme$axis.text.x$size <- fs - 1
+fig5B$theme$axis.title.y$size <- fs - 1
+fig5B$theme$axis.title.x$size <- fs - 1
+fig5B$theme$panel.margin <- unit(0.004,"npc")
+fig5B$labels$x <- "Difference in logit(p)"
+fig5B$labels$y <- c()
+
+png("Figure5.png", 14.5, 14.5, units = "cm", res = 300)
+grid.newpage()
+vp1 <- viewport(x=0.14, y=0.45, w=0.86, h=0.55, just=c("left","bottom"))
+vp2 <- viewport(x= 0, y=0, w=0.955, h=0.46, just=c("left","bottom"))
+print(fig5A, vp=vp1)
+print(fig5B, vp=vp2)
+grid.text("A", x = 0.03, y = 0.96, default.units = "npc", gp = gpar(fontsize = fs + 4))
+grid.text("B", x = 0.03, y = 0.43, default.units = "npc", gp = gpar(fontsize = fs + 4))
+dev.off()
+```
+

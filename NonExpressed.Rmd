@@ -21,7 +21,7 @@ library(spShortcuts)
 library(knitr)
 ```
 
-Data was loaded from the generatino of Figure 4, and expression values were converted to logical variables using the `R` command `is.finite()`.
+Data was loaded from the generation of Figure 4, and expression values were converted to logical variables using the `R` command `is.finite()`.
 Thus non-expressed genes in any tissue will be given the value `FALSE` whilst expressed genes will be given the value `TRUE`.
 ```{r, binaryData}
 binaryData <- tpmData %>%
@@ -45,8 +45,8 @@ where
 
 - $\alpha_i$ for $i$={1, 2, ..., 6} is the Tissue specific intercept term
 - $\beta$ is the effect on the probability of expression due to gene length
-- $\gamma_j$ for $j$ = {1, 2, ..., 20} represents any effects on the probability of expression due each of the 20 combinations of TE and genmoic region
-- $y_{ij}$ = logit($\pi_{ij}$), where $\pi_{ij}$ is the probablity of expression for a gene within Tissue $i$ with TEs defined by $j$
+- $\gamma_j$ for $j$ = {1, 2, ..., 20} represents any effects on the probability of expression due each of the 20 combinations of TE and genomic region
+- $y_{ij}$ = logit($\pi_{ij}$), where $\pi_{ij}$ is the probability of expression for a gene within Tissue $i$ with TEs defined by $j$
 
 No interaction terms were included in the final model.
 ```{r, fm}

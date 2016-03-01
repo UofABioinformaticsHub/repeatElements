@@ -7,7 +7,7 @@
 *aux
 *log
 *pdf
-cache/*
+*cache*
 figure/*
 SupportingMaterials/*
 DataInspection_cache/*
