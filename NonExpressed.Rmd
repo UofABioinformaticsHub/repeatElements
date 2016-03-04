@@ -2,7 +2,7 @@
 title: "Non-Expressed Genes"
 author: "Steve Pederson"
 date: "29 February 2016"
-output: html_document
+output: word_document
 ---
 
 # Explorations of non-expressed genes
@@ -19,6 +19,7 @@ library(magrittr)
 library(multcomp)
 library(spShortcuts)
 library(knitr)
+library(ggplot2)
 ```
 
 Data was loaded from the generation of Figure 4, and expression values were converted to logical variables using the `R` command `is.finite()`.
@@ -59,25 +60,62 @@ fm <- paste("TPM ~ 0 + Tissue + logLength + ",
 
 ```{r, expGlm}
 expGlm <- glm(fm, "binomial", binaryData) 
+expSum <- expGlm %>%
+  glht %>%
+  summary(test = adjusted("bonferroni")) %>%
+  extract2("test") %>%
+  extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+  set_names(c("Estimate", "Std.Error", "T", "P")) %>%
+  as.data.frame() %>%
+  add_rownames("Coefficient") 
 ```
 
 The results from the `glm` are summarised below, with all stated $p$-values being adjusted using Bonferroni's method.
 
 ```{r, glmRes, echo=FALSE, include=TRUE}
-glht(expGlm) %>% 
-  summary(test = adjusted("bonferroni")) %>% 
-  extract2("test") %>%
-  extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
-  set_names(c("Estimate", "Std.Error", "T", "P")) %>%
-  as.data.frame() %>%
-  add_rownames("Coefficient") %>%
+expSum %>%
   mutate(Sig = aster(P),
          Symbol = c(paste0("$\\alpha_", 1:6, "$"),
                     "$\\beta$",
                     paste0("$\\gamma_{", 1:20, "}$")),
          Coefficient = gsub("Tissue(.+)", "\\1 Tissue", Coefficient)) %>% 
   dplyr::select(Symbol, Coefficient, Estimate, Std.Error, T, P, Sig) %>%
+  mutate(P = format(P, digits = 3, scientific = TRUE)) %>%
   kable(digits = 4,
         col.names = c("Model Coefficient", "Term", "Estimate", "SE", "T", "P", " "))
+```
+
+```{r}
+expSum %>%
+  mutate(Symbol = c(paste0("$\\alpha_", 1:6, "$"),
+                    "$\\beta$",
+                    paste0("$\\gamma_{", 1:20, "}$")),
+         Coefficient = gsub("Tissue(.+)", "\\1 Tissue", Coefficient)) %>% 
+  dplyr::select(Symbol, Coefficient, Estimate, T, P) %>%
+  filter(grepl("gamma", Symbol),
+         P < 0.05) %>%
+  mutate(TE = gsub("(.+)_.+_IDs", "\\1", Coefficient),
+         TE = capwords(TE),
+         Region = gsub(".+_(.+)_IDs", "\\1", Coefficient),
+         Region = gsub("prox", "Proximal\nPromoter", Region),
+         Region = gsub("utr(5|3)", "\\1'UTR", Region),
+         Region = gsub("cds", "CDS", Region)) %>%
+  ggplot(aes(x = Region, y = TE, fill = T)) +
+  geom_raster() +
+  scale_fill_gradient2(low = rgb(.25, .25, .7),
+                       mid = rgb(1, 1, 1),
+                       high = rgb(.7, .15, .15)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  theme_bw() + 
+  labs(x = c(),
+       y = c(),
+       fill = "T\nstatistic") +
+  facet_grid(TE~Region, scales = "free") +
+  theme(axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        legend.title.align = 0.5,
+        panel.grid = element_blank(),
+        panel.margin = unit(0.005, "npc")) 
+  
 ```
 

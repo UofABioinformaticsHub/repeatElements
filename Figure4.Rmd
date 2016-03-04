@@ -27,6 +27,7 @@ library(magrittr)
 library(parallel)
 library(funsForLu)
 library(spShortcuts)
+library(multcomp)
 ```
 
 Load the data
@@ -68,6 +69,109 @@ tpmData %<>%
                    simplify = FALSE)) %>%
   mutate(nElTypes = alu + L1 + L2 + LTR + mir)
 ```
+
+# Non-expressed genes
+Prior to running the boostrap, a logistic regression model was fit to the data based on the binary variable which considered if a genes was expressed (i.e. TPM > 0) or not (i.e. TPM = 0).
+This model was defined as:
+
+$y_{ij} = \alpha_{i} + \beta + \gamma_{j}$
+where 
+
+- $\alpha_i$ for $i$={1, 2, ..., 6} is the Tissue specific intercept term
+- $\beta$ is the effect on the probability of expression due to gene length
+- $\gamma_j$ for $j$ = {1, 2, ..., 20} represents any effects on the probability of expression due each of the 20 combinations of TE and genomic region
+- $y_{ij}$ = logit($\pi_{ij}$), where $\pi_{ij}$ is the probability of expression for a gene within Tissue $i$ with TEs defined by $j$
+
+No interaction terms were included in the final model.
+
+```{r, binaryData}
+binaryData <- tpmData %>%
+  mutate(logLength = log(length)) %>%
+  melt(id.vars = c("ID", str_subset(colnames(tpmData), "IDs"), "logLength"),
+       measure.vars = str_subset(colnames(tpmData), "TPM"),
+       variable.name = "Tissue",
+       value.name = "TPM") %>% 
+  mutate(Tissue = str_replace(Tissue, "_TPM", ""),
+         Tissue = str_replace(Tissue, "_", " "),
+         Tissue = str_to_title(Tissue),
+         Tissue = as.factor(Tissue),
+         TPM = is.finite(TPM)) %>%
+  as_data_frame()
+```
+
+
+```{r, fm}
+fm <- paste("TPM ~ 0 + Tissue + logLength + ",
+            str_subset(colnames(binaryData), "IDs") %>%
+              sort %>%
+              paste(collapse = " + ")) %>%
+  as.formula()
+```
+
+```{r, expGlm}
+expGlm <- glm(fm, "binomial", binaryData) 
+expSum <- expGlm %>%
+  glht %>%
+  summary(test = adjusted("bonferroni")) %>%
+  extract2("test") %>%
+  extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+  set_names(c("Estimate", "Std.Error", "T", "P")) %>%
+  as.data.frame() %>%
+  add_rownames("Coefficient") 
+```
+
+The results from the `glm` are summarised below, with all stated $p$-values being adjusted using Bonferroni's method.
+
+```{r, glmRes, echo=FALSE, include=TRUE}
+expSum %>%
+  mutate(Sig = aster(P),
+         Symbol = c(paste0("$\\alpha_", 1:6, "$"),
+                    "$\\beta$",
+                    paste0("$\\gamma_{", 1:20, "}$")),
+         Coefficient = gsub("Tissue(.+)", "\\1 Tissue", Coefficient)) %>% 
+  dplyr::select(Symbol, Coefficient, Estimate, Std.Error, T, P, Sig) %>%
+  mutate(P = format(P, digits = 3, scientific = TRUE)) %>%
+  kable(digits = 4,
+        col.names = c("Model Coefficient", "Term", "Estimate", "SE", "T", "P", " "))
+```
+
+```{r, fig4a, echo=FALSE, include=TRUE, fig.width=9, fig.cap = 'T statistics from the logistic regression model plotted as a heatmap for each TE in each Genomic Region'}
+fig4a <- expSum %>%
+  mutate(Symbol = c(paste0("$\\alpha_", 1:6, "$"),
+                    "$\\beta$",
+                    paste0("$\\gamma_{", 1:20, "}$")),
+         Coefficient = gsub("Tissue(.+)", "\\1 Tissue", Coefficient)) %>% 
+  dplyr::select(Symbol, Coefficient, Estimate, T, P) %>%
+  filter(grepl("gamma", Symbol),
+         P < 0.05) %>%
+  mutate(TE = gsub("(.+)_.+_IDs", "\\1", Coefficient),
+         TE = capwords(TE),
+         TE = gsub("Ltr", "LTR", TE),
+         TE = factor(TE, rev(unique(TE))),
+         Region = gsub(".+_(.+)_IDs", "\\1", Coefficient),
+         Region = gsub("prox", "Proximal\nPromoter", Region),
+         Region = gsub("utr(5|3)", "\\1'UTR", Region),
+         Region = gsub("cds", "CDS", Region)) %>%
+  ggplot(aes(x = Region, y = TE, fill = T)) +
+  geom_raster() +
+  scale_fill_gradient2(low = rgb(.25, .25, .7),
+                       mid = rgb(1, 1, 1),
+                       high = rgb(.7, .15, .15)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  theme_bw() + 
+  labs(x = c(),
+       y = c(),
+       fill = "T\nstatistic") +
+  facet_wrap(~Region, scales = "free_x", nrow = 1) +
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title.align = 0.5,
+        panel.grid = element_blank(),
+        panel.margin = unit(0.005, "npc")) 
+fig4a
+```
+
+
 
 # Setup For The Bootstrap Procedure
 
@@ -828,7 +932,7 @@ confIntTissues <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
 ```
 
 ```{r, plotConfIntTissues, echo = FALSE, include=TRUE, fig.height=7, fig.width=10}
-fig4 <- confIntTissues %>%
+fig4b <- confIntTissues %>%
   mutate(Tissue = capwords(Tissue, sep = "_"),
          Tissue = factor(Tissue, rev(unique(sort(Tissue)))),
          TE = capwords(TE),
@@ -849,14 +953,14 @@ fig4 <- confIntTissues %>%
   labs(x = "FWER-adjusted 95% Confidence Intervals",
        y = c(),
        title = "Tissue-Specific Bootstrap Confidence Intervals For log(TPM)")
-fig4
+fig4b
 ```
 
 
-```{r, exportPNG, echo=FALSE, message=FALSE}
+```{r, exportPNG, echo=FALSE, include=FALSE}
 png("Figure4.png", height = 14.5, width = 14.5, units = "cm", res = 300)
 fs <- 9
-fig4 +
+fig4b +
   labs(title = c(),
        x = expression(paste("Change in ", log[2],"(TPM)"))) +
   theme(axis.text = element_text(size = fs - 0.5),
@@ -911,7 +1015,7 @@ figS6
 ```
 
 
-```{r, exportFigS6, echo=FALSE, message=FALSE}
+```{r, exportFigS6, echo=FALSE, include=FALSE}
 png("FigureS6.png", height = 12, width = 14.5, units = "cm", res = 300)
 fs <- 9
 figS6 +
@@ -923,6 +1027,32 @@ figS6 +
         panel.margin = unit(1, "mm"))
 dev.off()
 ```
+
+
+```{r, exportFig4, echo=FALSE, include=FALSE}
+png("Figure4.png", width = 14.5, height = 16, units = "cm", res = 300)
+grid.newpage()
+vp1 <- viewport(x=-0.02, y=0.75, w=0.973, h=0.25, just=c("left","bottom"))
+vp2 <- viewport(x= 0.01, y=0, w=0.99, h=0.75, just=c("left","bottom"))
+print(fig4a + 
+        theme(legend.title = element_text(size = fs),
+              legend.text = element_text(size = fs ),
+              legend.key.height = unit(0.025, "npc"),
+              legend.position = "left",
+              axis.text.y = element_text(size = fs - 0.5)),
+      vp=vp1)
+print(fig4b + 
+        labs(title = c(),
+             x = c()) + 
+        theme(axis.text = element_text(size = fs),
+              panel.margin = unit(0.005, "npc")),
+      vp=vp2)
+grid.text("A", x = 0.03, y = 0.97, default.units = "npc", gp = gpar(fontsize = fs + 4))
+grid.text("B", x = 0.03, y = 0.72, default.units = "npc", gp = gpar(fontsize = fs + 4))
+dev.off()
+```
+
+
 
 
 ```{r}
