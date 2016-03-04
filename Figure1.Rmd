@@ -1,0 +1,57 @@
+---
+title: "Figure 1"
+author: "Lu Zeng & Steve Pederson"
+date: "4 March 2016"
+output: html_document
+---
+
+```{r, loadPackages,warning = FALSE, message=FALSE}
+library(readr)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r, loadData}
+dataFile <- file.path("data", "Figure1.txt")
+human_dis <-  read_delim(dataFile, delim = "\t", col_names = FALSE) %>%
+  set_colnames(c("Region", "Percentage", "Human", "Type")) %>%
+  mutate(Region = factor(Region, 
+                         levels = c("5’UTR exon","5’UTR intron","CDS exon",
+                                    "CDS intron","3’UTR exon","3’UTR intron","Intergenic"))) %>%
+  mutate(Type = gsub("Human specific", "Specific", Type))
+```
+
+
+```{r, echo=FALSE, include=TRUE, fig.width=8}
+fig1 <- human_dis %>%
+  ggplot(aes(x=Region, y=Percentage/100, fill=Type)) +
+  ylim(0,.55)+	
+  geom_bar(stat="identity") +
+  scale_x_discrete(breaks = levels(human_dis$Region),
+                   labels = gsub(" ", "\n", levels(human_dis$Region))) + 
+  theme_bw(20) +
+  theme(panel.background = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_text(angle = 0)) +
+  scale_fill_manual(values=c("#009E73","tomato")) + 
+  labs(y = "Proportion of bases",
+       fill = "Repeat Type") 
+fig1
+```
+
+```{r, exportFig1.png}
+fs <- 9
+png("Figure1.png", height = 8.5, width = 11.5, units = "cm", res = 300)
+fig1 +
+  theme(axis.text = element_text(size = fs),
+        axis.title = element_text(size = fs + 1),
+        legend.text = element_text(size = fs),
+        legend.title = element_text(size = fs,
+                                    face = "bold"),
+        legend.position = "top",
+        legend.key.height = unit(4, "mm"),
+        legend.key.width = unit(4, "mm"))
+dev.off()
+```
+

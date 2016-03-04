@@ -4,6 +4,9 @@ author: "Steve Pederson"
 date: "26 February 2016"
 output: html_document
 ---
+# Introduction
+This contains code for the generation of Figure 4, S5 and S6
+
 # Setup
 
 ```{r, loadPackages, message=FALSE, warning=FALSE}
@@ -734,19 +737,33 @@ confIntLen <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
          TE = rep(elements$type, each = nRegions))
 ```
 
-```{r}
-confIntLen %>%
-  mutate(TE = factor(TE, rev(unique(TE)))) %>%
+```{r, figS5, echo=FALSE, include=TRUE, fig.width=8}
+figS5 <- confIntLen %>%
+  mutate(TE = capwords(TE),
+         TE = factor(TE, rev(unique(TE)))) %>%
   ggplot(aes(x = median, y = TE)) +
   geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.5) +
   facet_wrap(~Region, nrow=1, scales = "free_x") +
   geom_vline(xintercept = 0, colour = "grey50", linetype = 2) +
   theme_bw() +
-  labs(x = "95% CI") +
-  ggtitle("Difference in log(Length) between samples")
+  labs(x = "95% CI for the diference in log(Length)") 
+figS5
 ```
 
-As zero didn't lie outside of any of these intervals, the subsequent results can be deemed to be valid.
+As type II errors are the primary concern here, no adjustment was applied for multiple comparisons.
+Zero didn't lie outside of any of these intervals, and as such the subsequent results for the bootstrap can be deemed to be valid.
+
+```{r, exportFigS5, echo = FALSE, include=TRUE, message=FALSE}
+png("FigureS5.png", height = 10, width = 14.5, units = "cm", res = 300)
+fs <- 9
+figS5 +
+  theme(axis.text = element_text(size = fs - 0.5),
+        axis.title = element_text(size = fs + 1),
+        strip.text = element_text(size = fs + 1),
+        panel.margin = unit(1, "mm"))
+dev.off()
+```
+
 
 # Confidence Intervals for Elements & Regions
 
@@ -810,23 +827,101 @@ confIntTissues <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
          Sig = sign(lower) == sign(upper))
 ```
 
-```{r, plotConfIntTissues, fig.height=7, fig.width=10}
-confIntTissues %>%
+```{r, plotConfIntTissues, echo = FALSE, include=TRUE, fig.height=7, fig.width=10}
+fig4 <- confIntTissues %>%
   mutate(Tissue = capwords(Tissue, sep = "_"),
-         Tissue = factor(Tissue, rev(unique(Tissue))),
+         Tissue = factor(Tissue, rev(unique(sort(Tissue)))),
          TE = capwords(TE),
-         TE = gsub("Ltr", "LTR", TE)) %>%
+         TE = gsub("Ltr", "LTR", TE),
+         Region = gsub(" ", "\n", Region),
+         lower = lower/log(2),
+         median = median / log(2),
+         upper = upper / log(2)) %>%
   ggplot(aes(x = median, y = Tissue, colour = Sig)) +
+  geom_point(size = 1)+
   geom_errorbarh(aes(xmin = lower,xmax =upper),
                  height = 0.5) +
   scale_color_manual(values = c("black", "red")) +
-  geom_vline(xintercept = 0) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey70", size = 0.5) +
   theme_bw() + 
   facet_grid(TE~Region, scales = "free_x") +
   guides(colour = FALSE) +
   labs(x = "FWER-adjusted 95% Confidence Intervals",
        y = c(),
        title = "Tissue-Specific Bootstrap Confidence Intervals For log(TPM)")
+fig4
+```
+
+
+```{r, exportPNG, echo=FALSE, message=FALSE}
+png("Figure4.png", height = 14.5, width = 14.5, units = "cm", res = 300)
+fs <- 9
+fig4 +
+  labs(title = c(),
+       x = expression(paste("Change in ", log[2],"(TPM)"))) +
+  theme(axis.text = element_text(size = fs - 0.5),
+        axis.title = element_text(size = fs + 1),
+        strip.text = element_text(size = fs + 1),
+        panel.margin = unit(1, "mm"))
+dev.off()
+```
+
+
+```{r, confIntTissuesNoAdj}
+confIntTissuesNoAdj <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
+                            bootL1Utr3, bootL1Utr5, bootL1Prox, bootL1CDS,
+                            bootL2Utr3, bootL2Utr5, bootL2Prox, bootL2CDS,
+                            bootLTRUtr3, bootLTRUtr5, bootLTRProx, bootLTRCDS,
+                            bootMirUtr3, bootMirUtr5, bootMirProx, bootMirCDS) %>%
+  lapply(extract, tissues) %>%
+  lapply(getCI, 
+         alpha = 0.05) %>%
+  bind_rows() %>%
+  mutate(TE = rep(elements$type, 
+                  each = nRegions*nTissues),
+         Region = c("3'UTR", "5'UTR", "Proximal Promoter", "CDS") %>%
+           rep(times =nElements) %>%
+           rep(each = nTissues),
+         Sig = sign(lower) == sign(upper))
+```
+
+```{r, plotConfIntTissuesNoAdj, echo = FALSE, include=TRUE, fig.height=7, fig.width=10}
+figS6 <- confIntTissuesNoAdj %>%
+  mutate(Tissue = capwords(Tissue, sep = "_"),
+         Tissue = factor(Tissue, rev(unique(sort(Tissue)))),
+         TE = capwords(TE),
+         TE = gsub("Ltr", "LTR", TE),
+         Region = gsub(" ", "\n", Region),
+         lower = lower/log(2),
+         median = median / log(2),
+         upper = upper / log(2)) %>%
+  ggplot(aes(x = median, y = Tissue, colour = Sig)) +
+  geom_point(size = 1)+
+  geom_errorbarh(aes(xmin = lower,xmax =upper),
+                 height = 0.5) +
+  scale_color_manual(values = c("black", "red")) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey70", size = 0.5) +
+  theme_bw() + 
+  facet_grid(TE~Region, scales = "free_x") +
+  guides(colour = FALSE) +
+  labs(x = "Raw 95% Confidence Intervals",
+       y = c(),
+       title = "Tissue-Specific Bootstrap Confidence Intervals For log(TPM)")
+figS6
+```
+
+
+```{r, exportFigS6, echo=FALSE, message=FALSE}
+png("FigureS6.png", height = 12, width = 14.5, units = "cm", res = 300)
+fs <- 9
+figS6 +
+  labs(title = c(),
+       x = expression(paste("Change in ", log[2],"(TPM)"))) +
+  theme(axis.text = element_text(size = fs - 0.5),
+        axis.title = element_text(size = fs + 1),
+        strip.text = element_text(size = fs + 1),
+        panel.margin = unit(1, "mm"))
+dev.off()
 ```
 
 
