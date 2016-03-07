@@ -48,6 +48,7 @@ elements <- grep("IDs", colnames(tpmData), value = TRUE) %>%
   lapply(sort)
 nRegions <- length(elements$region)
 nElements <- length(elements$type)
+regFactor <- c("Proximal\nPromoter", "5'UTR", "CDS", "3'UTR")
 ```
 
 Collect the tissues
@@ -115,7 +116,7 @@ expSum <- expGlm %>%
   summary(test = adjusted("bonferroni")) %>%
   extract2("test") %>%
   extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
-  set_names(c("Estimate", "Std.Error", "T", "P")) %>%
+  set_names(c("Estimate", "Std.Error", "W", "P")) %>%
   as.data.frame() %>%
   add_rownames("Coefficient") 
 ```
@@ -129,10 +130,10 @@ expSum %>%
                     "$\\beta$",
                     paste0("$\\gamma_{", 1:20, "}$")),
          Coefficient = gsub("Tissue(.+)", "\\1 Tissue", Coefficient)) %>% 
-  dplyr::select(Symbol, Coefficient, Estimate, Std.Error, T, P, Sig) %>%
+  dplyr::select(Symbol, Coefficient, Estimate, Std.Error, W, P, Sig) %>%
   mutate(P = format(P, digits = 3, scientific = TRUE)) %>%
   kable(digits = 4,
-        col.names = c("Model Coefficient", "Term", "Estimate", "SE", "T", "P", " "))
+        col.names = c("Model Coefficient", "Term", "Estimate", "SE", "W", "P", " "))
 ```
 
 ```{r, fig4a, echo=FALSE, include=TRUE, fig.width=9, fig.cap = 'T statistics from the logistic regression model plotted as a heatmap for each TE in each Genomic Region'}
@@ -141,7 +142,7 @@ fig4a <- expSum %>%
                     "$\\beta$",
                     paste0("$\\gamma_{", 1:20, "}$")),
          Coefficient = gsub("Tissue(.+)", "\\1 Tissue", Coefficient)) %>% 
-  dplyr::select(Symbol, Coefficient, Estimate, T, P) %>%
+  dplyr::select(Symbol, Coefficient, Estimate, W, P) %>%
   filter(grepl("gamma", Symbol),
          P < 0.05) %>%
   mutate(TE = gsub("(.+)_.+_IDs", "\\1", Coefficient),
@@ -151,8 +152,9 @@ fig4a <- expSum %>%
          Region = gsub(".+_(.+)_IDs", "\\1", Coefficient),
          Region = gsub("prox", "Proximal\nPromoter", Region),
          Region = gsub("utr(5|3)", "\\1'UTR", Region),
-         Region = gsub("cds", "CDS", Region)) %>%
-  ggplot(aes(x = Region, y = TE, fill = T)) +
+         Region = gsub("cds", "CDS", Region),
+         Region = factor(Region, levels = regFactor)) %>%
+  ggplot(aes(x = Region, y = TE, fill = Estimate)) +
   geom_raster() +
   scale_fill_gradient2(low = rgb(.25, .25, .7),
                        mid = rgb(1, 1, 1),
@@ -161,7 +163,7 @@ fig4a <- expSum %>%
   theme_bw() + 
   labs(x = c(),
        y = c(),
-       fill = "T\nstatistic") +
+       fill = "Effect\nSize") +
   facet_wrap(~Region, scales = "free_x", nrow = 1) +
   theme(axis.ticks.x = element_blank(),
         axis.text.x = element_blank(),
@@ -844,7 +846,9 @@ confIntLen <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
 ```{r, figS5, echo=FALSE, include=TRUE, fig.width=8}
 figS5 <- confIntLen %>%
   mutate(TE = capwords(TE),
-         TE = factor(TE, rev(unique(TE)))) %>%
+         TE = factor(TE, rev(unique(TE))),
+         Region = gsub(" ", "\n", Region),
+         Region = factor(Region, levels = regFactor)) %>%
   ggplot(aes(x = median, y = TE)) +
   geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.5) +
   facet_wrap(~Region, nrow=1, scales = "free_x") +
@@ -886,8 +890,9 @@ confIntCombined <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
          combined = TRUE) %>%
   bind_rows() %>%
   mutate(TE = rep(elements$type, each = nRegions),
-         Region = rep(c("3'UTR", "5'UTR", "Proximal Promoter", "CDS"),
+         Region = rep(c("3'UTR", "5'UTR", "Proximal\nPromoter", "CDS"),
                       times = nElements),
+         Region = factor(Region,levels = regFactor),
          Sig = sign(lower) == sign(upper))
 ```
 
@@ -925,7 +930,7 @@ confIntTissues <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
   bind_rows() %>%
   mutate(TE = rep(elements$type, 
                   each = nRegions*nTissues),
-         Region = c("3'UTR", "5'UTR", "Proximal Promoter", "CDS") %>%
+         Region = c("3'UTR", "5'UTR", "Proximal\nPromoter", "CDS") %>%
            rep(times =nElements) %>%
            rep(each = nTissues),
          Sig = sign(lower) == sign(upper))
@@ -937,7 +942,7 @@ fig4b <- confIntTissues %>%
          Tissue = factor(Tissue, rev(unique(sort(Tissue)))),
          TE = capwords(TE),
          TE = gsub("Ltr", "LTR", TE),
-         Region = gsub(" ", "\n", Region),
+         Region = factor(Region, levels= regFactor),
          lower = lower/log(2),
          median = median / log(2),
          upper = upper / log(2)) %>%
@@ -957,19 +962,6 @@ fig4b
 ```
 
 
-```{r, exportPNG, echo=FALSE, include=FALSE}
-png("Figure4.png", height = 14.5, width = 14.5, units = "cm", res = 300)
-fs <- 9
-fig4b +
-  labs(title = c(),
-       x = expression(paste("Change in ", log[2],"(TPM)"))) +
-  theme(axis.text = element_text(size = fs - 0.5),
-        axis.title = element_text(size = fs + 1),
-        strip.text = element_text(size = fs + 1),
-        panel.margin = unit(1, "mm"))
-dev.off()
-```
-
 
 ```{r, confIntTissuesNoAdj}
 confIntTissuesNoAdj <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
@@ -983,7 +975,7 @@ confIntTissuesNoAdj <- list(bootAluUtr3, bootAluUtr5, bootAluProx, bootAluCDS,
   bind_rows() %>%
   mutate(TE = rep(elements$type, 
                   each = nRegions*nTissues),
-         Region = c("3'UTR", "5'UTR", "Proximal Promoter", "CDS") %>%
+         Region = c("3'UTR", "5'UTR", "Proximal\Promoter", "CDS") %>%
            rep(times =nElements) %>%
            rep(each = nTissues),
          Sig = sign(lower) == sign(upper))
@@ -995,7 +987,7 @@ figS6 <- confIntTissuesNoAdj %>%
          Tissue = factor(Tissue, rev(unique(sort(Tissue)))),
          TE = capwords(TE),
          TE = gsub("Ltr", "LTR", TE),
-         Region = gsub(" ", "\n", Region),
+         Region = factor(Region, levels = regFactor),
          lower = lower/log(2),
          median = median / log(2),
          upper = upper / log(2)) %>%
