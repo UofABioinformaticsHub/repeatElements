@@ -205,34 +205,6 @@ nBoot <- 10000L
 testVals <- c("logLength", tissues)
 ```
 
-
-An additional function was written to extract the CI from each set of bootstrap samples
-```{r}
-getCI <- function(x, alpha, combined = FALSE){
-  if (!combined) {
-    out <- x %>%
-      lapply(extract2, "samples") %>%
-      lapply(quantile, probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
-      lapply(t) %>%
-      lapply(as.data.frame) %>%
-      bind_rows() %>%
-      set_names(c("lower", "median", "upper")) %>%
-      mutate(Tissue = names(x))
-  } 
-  else {
-    out <- x %>%
-      lapply(extract2, "samples") %>%
-      unlist %>%
-      quantile(probs = c(alpha/2, 0.5, 1 - alpha/2)) %>%
-      as.list %>%
-      as.data.frame %>%
-      set_names(c("lower", "median", "upper"))
-  }
-  out
-}
-```
-
-
 In order to provide the number of samples to accurately construct these confidence intervals, the analysis was performed using `r nBoot` bootstrap iterations.
 
 ## 3' UTR

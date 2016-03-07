@@ -1,0 +1,2 @@
+5’UTR exon	0.871680439	Human	Human specific5’UTR intron	13.10132039	Human	Human specific
+CDS exon	0.053882442	Human	Human specificCDS intron	12.09856193	Human	Human specific3’UTR exon	4.39520434	Human	Human specific3’UTR intron	11.4145054	Human	Human specificIntergenic	10.12695295	Human	Human specific5’UTR exon	6.946391283	Human	Shared5’UTR intron	29.9783931	Human	SharedCDS exon	0.905644093	Human	SharedCDS intron	29.57320371	Human	Shared3’UTR exon	7.945943	Human	Shared3’UTR intron	21.15594834	Human	SharedIntergenic	37.75734074	Human	Shared

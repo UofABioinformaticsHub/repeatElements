@@ -1,6 +1,6 @@
 ---
 title: "Distribution of REs and RETEs"
-author: "Steve Pederson"
+author: "Steve Pederson & Lu Zeng"
 date: "17 February 2016"
 output: html_document
 ---
@@ -22,13 +22,14 @@ library(knitr)
 library(magrittr)
 library(limma)
 library(spShortcuts)
+logit <- binomial()$linkfun
 ```
 
-NB Proportions were transformed using the logit function
+NB: Proportions were transformed using the logit function
 
 ```{r}
-logit <- binomial()$linkfun
-fig2 <- read_csv("Figure2.csv", col_names = FALSE) %>%
+fig2 <- file.path("data", "Figure2.csv") %>%
+  read_csv(col_names = FALSE) %>%
   set_colnames(c("Region", "RE", "Tissue", "bpRETE", "bpRE")) %>%
   mutate(Region = gsub("([35])'UTR", "UTR\\1", Region),
          Region = gsub("CDS-", "CDS", Region),
