@@ -7,11 +7,13 @@
 *aux
 *log
 *pdf
+*Rnw
+*png
+*R
 *cache*
 figure/*
 SupportingMaterials/*
-DataInspection_cache/*
 DataInspection_files
 negativeBimonial.Rmd
 old*
-*.png
+
