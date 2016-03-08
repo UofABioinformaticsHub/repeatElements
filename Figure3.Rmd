@@ -1,0 +1,365 @@
+---
+title: "Figure 3"
+author: "Lu Zeng & Steve Pederson"
+date: "8 March 2016"
+output: html_document
+---
+
+# Introduction
+This script analyses and prepares the data for Figure 3.
+
+In this analysis, the analysed values are the probability of a nucleotide being within an RE, given that it is within an TE, i.e. $p(RE \mid TE)$.
+The TEs are explored using the specific classes:
+
+1. SINE/Alu
+2. SINE/Mir
+3. LINE/L1 Ancestral
+4. LINE/L1 Recent
+5. LINE/L2
+6. LTR/ERV1         
+7. DNA/hAT-Charlie 
+
+# Data Preparation
+
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(MASS)
+library(matrixStats)
+library(xtable)
+library(multcomp)
+library(sandwich)
+library(car)
+library(boot)
+library(dplyr)
+library(reshape2)
+library(readr)
+library(knitr)
+library(magrittr)
+library(limma)
+library(spShortcuts)
+library(grid)
+```
+
+```{r}
+fig3 <- file.path("data", "Figure3.csv") %>%
+  read_csv(col_names = FALSE) %>%
+  set_colnames(c("TE", "RE", "Tissue", "BP")) %>%
+  mutate(TE = factor(TE, unique(TE)),
+         RE = capwords(RE),
+         RE = gsub("Regions", "Region", RE),
+         RE = factor(RE, unique(RE)),
+         Tissue = capwords(Tissue),
+         BP = BP / 100,
+         Class = gsub("(.+)/.+", "\\1", TE),
+         Type = gsub(".+/(.+)", "\\1", TE),
+         shortTE = gsub("(L|S)INE/", "", TE),
+         shortTE = gsub("(LTR|DNA).+", "\\1", shortTE),
+         shortTE = factor(shortTE, unique(shortTE)),
+         logitBP = logit(BP/100))
+```
+
+# Raw Data
+
+```{r, echo=FALSE, fig.height=5, fig.width = 8, fig.cap = 'Conditional probabilities for a nucleotide being an RE, given that it is within a TE'}
+fs <- 8
+fig3a <- fig3 %>%
+  group_by(RE, TE) %>%
+  summarise(mn = mean(logitBP), n = n(), se = sd(logitBP) /sqrt(n)) %>%
+  ungroup()%>%
+  mutate(lwr = binomial()$linkinv(mn - se),
+         upr = binomial()$linkinv(mn + se),
+         pi = binomial()$linkinv(mn),
+         RE  = gsub(" ", "\n", RE),
+         RE = factor(RE, unique(RE))) %>%
+  ggplot(aes(x = TE, y = pi, fill = TE)) +
+  geom_bar(stat = "identity") +
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width=  0.4) +
+  facet_wrap(~RE, nrow = 1) +
+  theme_bw() +
+  scale_y_continuous(expand = c(0.01, 0)) +
+  labs(x = c(),
+       y = "Probability Estimate",
+       fill = "Element\nType") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size = fs),
+        axis.text.y = element_text(size = fs-1),
+        strip.text = element_text(size = fs-1),
+        legend.text = element_text(size = fs),
+        legend.title = element_text(size = fs, face = "bold"),
+        legend.title.align = 0.5,
+        legend.position = "top",
+        panel.margin = unit(.004, "npc"),
+        panel.grid = element_line(colour = "grey50")) 
+fig3a
+```
+
+
+# Model Fitting and Testing
+
+The model was fitting as a whole dataset and whilst the assumption of normality did hold, whilst the assumption of homoscedasticity did not.
+```{r, fig3Lm}
+fig3Lm <- lm(logitBP ~ shortTE*RE, data = fig3)
+```
+
+```{r, swTest}
+fig3Lm %>% 
+  resid() %>%
+  shapiro.test()
+```
+
+```{r, levTest}
+fig3Lm %>%
+  leveneTest(center = "mean")
+```
+
+```{r, echo=FALSE, include=TRUE}
+fig3Lm %>%
+  glht(vcov= sandwich) %>%
+  summary(test = adjusted("bonferroni")) %>%
+  extract2("test") %>%
+  extract(c("coefficients", "sigma", "tstat", "pvalues")) %>%
+  as.data.frame() %>%
+  add_rownames("Coefficient") %>%
+  rename(Estimate = coefficients,
+         `Std Error` = sigma,
+         T = tstat,
+         P = pvalues) %>%
+  mutate(Coefficient = gsub("(shortTE|RE)", "", Coefficient),
+         ` ` = aster(P),
+         P = format(P, digits= 3, scientific = TRUE)) %>%
+  kable(digits = 3,
+        caption = "Coefficients from model fitting. P values are adjusted using Bonferroni's Method",
+        align = c("l", "r", "r", "r", "r", "l"))
+```
+
+
+# Preparation of Contrasts
+
+A matrix of all possible contrasts for each RE was then formed based on the full model
+```{r, contMat}
+modMat <- fig3Lm %>%
+  update(.~. -1) %>%
+  model.matrix
+colnames(modMat) %<>% 
+  magsub("(shortTE|RE)", "") %>%
+  magsub(" ", "_") %>%
+  magsub(":", ".")
+```
+
+```{r}
+contMat <- list(
+  `Active Promoter` = makeContrasts(
+    Mir - Alu,
+    L1_Ancestral - Alu,
+    L1_Recent - Alu,
+    L2 - Alu,
+    LTR - Alu,
+    DNA - Alu,
+    L1_Ancestral - Mir,
+    L1_Recent - Mir,
+    L2 - Mir,
+    LTR - Mir,
+    DNA - Mir,
+    L1_Recent - L1_Ancestral,
+    L2 - L1_Ancestral,
+    LTR - L1_Ancestral,
+    DNA - L1_Ancestral,
+    L2 - L1_Recent,
+    LTR - L1_Recent,
+    DNA - L1_Recent,
+    LTR - L2,
+    DNA - L2,
+    DNA - LTR,
+    levels = modMat),
+  `Weak Promoter` = makeContrasts(
+    Mir + Mir.Weak_Promoter - Alu,
+    L1_Ancestral + L1_Ancestral.Weak_Promoter - Alu,
+    L1_Recent + L1_Recent.Weak_Promoter - Alu,
+    L2 + L2.Weak_Promoter - Alu,
+    LTR + LTR.Weak_Promoter - Alu,
+    DNA + DNA.Weak_Promoter - Alu,
+    L1_Ancestral + L1_Ancestral.Weak_Promoter - Mir - Mir.Weak_Promoter,
+    L1_Recent + L1_Recent.Weak_Promoter - Mir - Mir.Weak_Promoter,
+    L2 + L2.Weak_Promoter- Mir - Mir.Weak_Promoter,
+    LTR + LTR.Weak_Promoter - Mir - Mir.Weak_Promoter,
+    DNA + DNA.Weak_Promoter - Mir - Mir.Weak_Promoter,
+    L1_Recent + L1_Recent.Weak_Promoter - L1_Ancestral - L1_Ancestral.Weak_Promoter,
+    L2 + L2.Weak_Promoter - L1_Ancestral - L1_Ancestral.Weak_Promoter,
+    LTR + LTR.Weak_Promoter - L1_Ancestral - L1_Ancestral.Weak_Promoter,
+    DNA + DNA.Weak_Promoter - L1_Ancestral - L1_Ancestral.Weak_Promoter,
+    L2 + L2.Weak_Promoter - L1_Recent - L1_Recent.Weak_Promoter,
+    LTR + LTR.Weak_Promoter - L1_Recent - L1_Recent.Weak_Promoter,
+    DNA + DNA.Weak_Promoter - L1_Recent - L1_Recent.Weak_Promoter,
+    LTR + LTR.Weak_Promoter - L2 - L2.Weak_Promoter,
+    DNA + DNA.Weak_Promoter - L2 - L2.Weak_Promoter,
+    DNA + DNA.Weak_Promoter - LTR - LTR.Weak_Promoter,
+    levels = modMat),
+  `Strong Enhancer` = makeContrasts(
+    Mir + Mir.Strong_Enhancer - Alu,
+    L1_Ancestral + L1_Ancestral.Strong_Enhancer - Alu,
+    L1_Recent + L1_Recent.Strong_Enhancer - Alu,
+    L2 + L2.Strong_Enhancer - Alu,
+    LTR + LTR.Strong_Enhancer - Alu,
+    DNA + DNA.Strong_Enhancer - Alu,
+    L1_Ancestral + L1_Ancestral.Strong_Enhancer - Mir - Mir.Strong_Enhancer,
+    L1_Recent + L1_Recent.Strong_Enhancer - Mir - Mir.Strong_Enhancer,
+    L2 + L2.Strong_Enhancer- Mir - Mir.Strong_Enhancer,
+    LTR + LTR.Strong_Enhancer - Mir - Mir.Strong_Enhancer,
+    DNA + DNA.Strong_Enhancer - Mir - Mir.Strong_Enhancer,
+    L1_Recent + L1_Recent.Strong_Enhancer - L1_Ancestral - L1_Ancestral.Strong_Enhancer,
+    L2 + L2.Strong_Enhancer - L1_Ancestral - L1_Ancestral.Strong_Enhancer,
+    LTR + LTR.Strong_Enhancer - L1_Ancestral - L1_Ancestral.Strong_Enhancer,
+    DNA + DNA.Strong_Enhancer - L1_Ancestral - L1_Ancestral.Strong_Enhancer,
+    L2 + L2.Strong_Enhancer - L1_Recent - L1_Recent.Strong_Enhancer,
+    LTR + LTR.Strong_Enhancer - L1_Recent - L1_Recent.Strong_Enhancer,
+    DNA + DNA.Strong_Enhancer - L1_Recent - L1_Recent.Strong_Enhancer,
+    LTR + LTR.Strong_Enhancer - L2 - L2.Strong_Enhancer,
+    DNA + DNA.Strong_Enhancer - L2 - L2.Strong_Enhancer,
+    DNA + DNA.Strong_Enhancer - LTR - LTR.Strong_Enhancer,
+    levels = modMat),
+  `Weak Enhancer` = makeContrasts(
+    Mir + Mir.Weak_Enhancer - Alu,
+    L1_Ancestral + L1_Ancestral.Weak_Enhancer - Alu,
+    L1_Recent + L1_Recent.Weak_Enhancer - Alu,
+    L2 + L2.Weak_Enhancer - Alu,
+    LTR + LTR.Weak_Enhancer - Alu,
+    DNA + DNA.Weak_Enhancer - Alu,
+    L1_Ancestral + L1_Ancestral.Weak_Enhancer - Mir - Mir.Weak_Enhancer,
+    L1_Recent + L1_Recent.Weak_Enhancer - Mir - Mir.Weak_Enhancer,
+    L2 + L2.Weak_Enhancer- Mir - Mir.Weak_Enhancer,
+    LTR + LTR.Weak_Enhancer - Mir - Mir.Weak_Enhancer,
+    DNA + DNA.Weak_Enhancer - Mir - Mir.Weak_Enhancer,
+    L1_Recent + L1_Recent.Weak_Enhancer - L1_Ancestral - L1_Ancestral.Weak_Enhancer,
+    L2 + L2.Weak_Enhancer - L1_Ancestral - L1_Ancestral.Weak_Enhancer,
+    LTR + LTR.Weak_Enhancer - L1_Ancestral - L1_Ancestral.Weak_Enhancer,
+    DNA + DNA.Weak_Enhancer - L1_Ancestral - L1_Ancestral.Weak_Enhancer,
+    L2 + L2.Weak_Enhancer - L1_Recent - L1_Recent.Weak_Enhancer,
+    LTR + LTR.Weak_Enhancer - L1_Recent - L1_Recent.Weak_Enhancer,
+    DNA + DNA.Weak_Enhancer - L1_Recent - L1_Recent.Weak_Enhancer,
+    LTR + LTR.Weak_Enhancer - L2 - L2.Weak_Enhancer,
+    DNA + DNA.Weak_Enhancer - L2 - L2.Weak_Enhancer,
+    DNA + DNA.Weak_Enhancer - LTR - LTR.Weak_Enhancer,
+    levels = modMat),
+  `Repressed Region` = makeContrasts(
+    Mir + Mir.Repressed_Region - Alu,
+    L1_Ancestral + L1_Ancestral.Repressed_Region - Alu,
+    L1_Recent + L1_Recent.Repressed_Region - Alu,
+    L2 + L2.Repressed_Region - Alu,
+    LTR + LTR.Repressed_Region - Alu,
+    DNA + DNA.Repressed_Region - Alu,
+    L1_Ancestral + L1_Ancestral.Repressed_Region - Mir - Mir.Repressed_Region,
+    L1_Recent + L1_Recent.Repressed_Region - Mir - Mir.Repressed_Region,
+    L2 + L2.Repressed_Region- Mir - Mir.Repressed_Region,
+    LTR + LTR.Repressed_Region - Mir - Mir.Repressed_Region,
+    DNA + DNA.Repressed_Region - Mir - Mir.Repressed_Region,
+    L1_Recent + L1_Recent.Repressed_Region - L1_Ancestral - L1_Ancestral.Repressed_Region,
+    L2 + L2.Repressed_Region - L1_Ancestral - L1_Ancestral.Repressed_Region,
+    LTR + LTR.Repressed_Region - L1_Ancestral - L1_Ancestral.Repressed_Region,
+    DNA + DNA.Repressed_Region - L1_Ancestral - L1_Ancestral.Repressed_Region,
+    L2 + L2.Repressed_Region - L1_Recent - L1_Recent.Repressed_Region,
+    LTR + LTR.Repressed_Region - L1_Recent - L1_Recent.Repressed_Region,
+    DNA + DNA.Repressed_Region - L1_Recent - L1_Recent.Repressed_Region,
+    LTR + LTR.Repressed_Region - L2 - L2.Repressed_Region,
+    DNA + DNA.Repressed_Region - L2 - L2.Repressed_Region,
+    DNA + DNA.Repressed_Region - LTR - LTR.Repressed_Region,
+    levels = modMat),
+  `Insulator` = makeContrasts(
+    Mir + Mir.Insulator - Alu,
+    L1_Ancestral + L1_Ancestral.Insulator - Alu,
+    L1_Recent + L1_Recent.Insulator - Alu,
+    L2 + L2.Insulator - Alu,
+    LTR + LTR.Insulator - Alu,
+    DNA + DNA.Insulator - Alu,
+    L1_Ancestral + L1_Ancestral.Insulator - Mir - Mir.Insulator,
+    L1_Recent + L1_Recent.Insulator - Mir - Mir.Insulator,
+    L2 + L2.Insulator- Mir - Mir.Insulator,
+    LTR + LTR.Insulator - Mir - Mir.Insulator,
+    DNA + DNA.Insulator - Mir - Mir.Insulator,
+    L1_Recent + L1_Recent.Insulator - L1_Ancestral - L1_Ancestral.Insulator,
+    L2 + L2.Insulator - L1_Ancestral - L1_Ancestral.Insulator,
+    LTR + LTR.Insulator - L1_Ancestral - L1_Ancestral.Insulator,
+    DNA + DNA.Insulator - L1_Ancestral - L1_Ancestral.Insulator,
+    L2 + L2.Insulator - L1_Recent - L1_Recent.Insulator,
+    LTR + LTR.Insulator - L1_Recent - L1_Recent.Insulator,
+    DNA + DNA.Insulator - L1_Recent - L1_Recent.Insulator,
+    LTR + LTR.Insulator - L2 - L2.Insulator,
+    DNA + DNA.Insulator - L2 - L2.Insulator,
+    DNA + DNA.Insulator - LTR - LTR.Insulator,
+    levels = modMat)
+)
+for (i in 2:length(contMat)) colnames(contMat[[i]]) <- colnames(contMat[[1]])
+```
+
+# Confidence Intervals
+
+$1 - \alpha$ Confidence intervals were then formed using the `sandwich` estimator for standard errors, setting $\alpha = 0.05 / 6$
+
+```{r, confintCond}
+confintCond <- names(contMat) %>%
+  lapply(function(x){
+    fig3Lm %>%
+      update(.~. -1) %>%
+      glht(vcov = sandwich, linfct = t(contMat[[x]])) %>%
+      confint(level = 1 - 0.05/6) %>%
+      extract2("confint") %>%
+      as.data.frame() %>%
+      add_rownames(var = "Comparison") %>%
+      mutate(RE = x)
+  }) %>%
+  bind_rows %>%
+  mutate(Sig = sign(lwr) == sign(upr),
+         RE = factor(RE, levels = unique(RE)),
+         Comparison = factor(Comparison, levels = unique(Comparison))) 
+```
+
+```{r, fig3b, echo=FALSE, fig.width=9}
+fig3b <- confintCond %>%
+  mutate(Comparison = gsub("_", " ", Comparison),
+         Comparison = factor(Comparison, levels = rev(unique(Comparison))),
+         RE = gsub(" ", "\n", RE),
+         RE = factor(RE, levels = unique(RE))) %>%
+  ggplot(aes(x = Estimate, y = Comparison)) +
+  geom_point(aes(colour = Sig), size = 0.5) + 
+  geom_errorbarh(aes(xmin = lwr, xmax = upr, colour = Sig), 
+                 height = 0.5, size = 0.4) +
+  geom_vline(xintercept = 0, 
+             linetype = 2,
+             colour = "grey50", size = 0.2) +
+  facet_wrap(~RE, ncol = 6) +
+  scale_colour_manual(values = c("black", "red")) +
+  guides(colour = FALSE) +
+  theme_bw() +
+  labs(x = "Difference in logit(p)",
+       y = c()) +
+  theme(panel.grid = element_blank(),
+        panel.margin = unit(0.004,"npc"),
+        axis.text = element_text(size = fs),
+        axis.title = element_text(size = fs),
+        strip.text = element_text(size = fs -1 ))
+fig3b
+```
+
+# Export of the complete image
+```{r, export, echo=FALSE, include=FALSE}
+png("Figure3.png", 14.5, 14.5, units = "cm", res = 300)
+grid.newpage()
+vp1 <- viewport(x=0.085, y=0.55, w=0.915, h=0.48, just=c("left","bottom"))
+vp2 <- viewport(x= 0, y=0, w=1, h=0.57, just=c("left","bottom"))
+print(fig3b +
+        theme(axis.text.y = element_text(size = fs- 2 ), 
+              axis.text.x = element_text(size = fs - 1),
+              axis.title = element_text(size = fs),
+              panel.margin = unit(0.004, "npc")),
+      vp=vp2)
+print(fig3a +
+        theme(axis.title.y = element_text(size = fs - 1),
+              legend.text = element_text(size = fs - 2),
+              legend.title = element_text(size = fs - 1),
+              legend.key.size = unit(4, "mm")), 
+      vp=vp1)
+grid.text("A", x = 0.02, y = 0.96, default.units = "npc", gp = gpar(fontsize = fs + 4))
+grid.text("B", x = 0.02, y = 0.54, default.units = "npc", gp = gpar(fontsize = fs + 4))
+dev.off()
+```
+
